@@ -1,0 +1,12 @@
+*{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%;background:#07070F;color:#b8d4b8;font-family:'Share Tech Mono',monospace;overflow:hidden}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:#0A0A1A}
+::-webkit-scrollbar-thumb{background:rgba(0,250,154,.25);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:rgba(0,250,154,.45)}
+input,select{background:rgba(0,250,154,.04);border:1px solid rgba(0,250,154,.2);color:#c8e6c8;padding:8px 12px;border-radius:4px;font-family:'Share Tech Mono',monospace;font-size:12px;outline:none;width:100%;transition:border-color .2s,box-shadow .2s}
+input:focus,select:focus{border-color:#00FA9A;box-shadow:0 0 12px rgba(0,250,154,.22)}
+select option{background:#0D0D1F;color:#c8e6c8}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes loadbar{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}
+.fade-in{animation:fadeIn .25s ease forwards}
