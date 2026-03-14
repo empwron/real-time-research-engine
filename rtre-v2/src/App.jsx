@@ -250,21 +250,9 @@ export default function App() {
   const [showChangePw, setShowChangePw] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
 
-  // Bắt sự kiện click ra ngoài để đóng menu user
-  const userMenuRef = useRef(null)
-  useEffect(() => {
-    function handleClickOutside(e) {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
-        setShowUserMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
   // Panel sizes in pixels
   const containerRef = useRef(null)
-  const [leftW, setLeftW]   = useState(300) // Input panel width
+  const [leftW, setLeftW]   = useState(240) // Input panel width
   const [topH,  setTopH]    = useState(0)   // Will init after mount
 
   useEffect(()=>{
@@ -339,7 +327,7 @@ export default function App() {
         </span>
         <div style={{flex:1}}/>
         {/* User menu */}
-        <div style={{position:'relative'}} ref={userMenuRef}>
+        <div style={{position:'relative'}}>
           <div onClick={()=>setShowUserMenu(s=>!s)}
             style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',
               padding:'5px 10px',borderRadius:5,transition:'background .15s',
@@ -405,17 +393,17 @@ export default function App() {
         {activeProject?(
           <div style={{flex:1,display:'flex',overflow:'hidden',minWidth:0,padding:8,gap:0}}>
             {/* Left: Input */}
-            <Panel panelKey="input" style={{width:leftW,flexShrink:0, resize: 'horizontal', overflow: 'auto'}}>
+            <Panel panelKey="input" style={{width:leftW,flexShrink:0}}>
               <InputTab project={activeProject}/>
             </Panel>
 
             {/* Horizontal divider */}
-            <Divider onDrag={delta=>setLeftW(w=>Math.max(180,Math.min(600,w+delta)))}/>
+            <Divider onDrag={delta=>setLeftW(w=>Math.max(180,Math.min(500,w+delta)))}/>
 
             {/* Right: Table + Chart stacked */}
             <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0,gap:0}}>
               {/* Top: Table */}
-              <Panel panelKey="table" style={{height:topH,flexShrink:0, resize: 'vertical', overflow: 'auto'}}>
+              <Panel panelKey="table" style={{height:topH,flexShrink:0}}>
                 <TableTab project={activeProject}/>
               </Panel>
 
@@ -426,7 +414,7 @@ export default function App() {
               }}/>
 
               {/* Bottom: Chart */}
-              <Panel panelKey="chart" style={{flex:1,minHeight:120, resize: 'vertical', overflow: 'auto'}}>
+              <Panel panelKey="chart" style={{flex:1,minHeight:120}}>
                 <ChartTab project={activeProject}/>
               </Panel>
             </div>

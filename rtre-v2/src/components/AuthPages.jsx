@@ -19,19 +19,25 @@ const Field = ({ label, value, onChange, type='text', placeholder='', hint='' })
   </div>
 )
 
-// Cập nhật overflow:'auto' và padding để chống tràn màn hình
 function AuthWrap({ children }) {
   return (
-    <div style={{ minHeight:'100vh', background:'#07070F', display:'flex', alignItems:'center', justifyContent:'center', position:'relative', overflow:'auto', padding: '40px 0' }}>
-      <div style={{ position:'absolute', inset:0, backgroundImage:'linear-gradient(rgba(0,250,154,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(0,250,154,.035) 1px,transparent 1px)', backgroundSize:'60px 60px' }}/>
-      <div style={{ position:'absolute', inset:0, background:'radial-gradient(ellipse at 50% 25%,rgba(0,250,154,.08) 0%,transparent 60%)' }}/>
-      <div className="fade-in" style={{ width:440, position:'relative', zIndex:10, margin: 'auto' }}>
+    <div style={{ minHeight:'100vh', background:'#07070F', display:'flex',
+      alignItems:'center', justifyContent:'center', position:'relative', overflow:'hidden' }}>
+      <div style={{ position:'absolute', inset:0,
+        backgroundImage:'linear-gradient(rgba(0,250,154,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(0,250,154,.035) 1px,transparent 1px)',
+        backgroundSize:'60px 60px' }}/>
+      <div style={{ position:'absolute', inset:0,
+        background:'radial-gradient(ellipse at 50% 25%,rgba(0,250,154,.08) 0%,transparent 60%)' }}/>
+      <div className="fade-in" style={{ width:440, position:'relative', zIndex:10 }}>
         <div style={{ textAlign:'center', marginBottom:36 }}>
-          <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:10, color:C.green, letterSpacing:'7px', opacity:.35, marginBottom:10 }}>REALTIME</div>
-          <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:28, fontWeight:700, color:'#fff', letterSpacing:'3px', textShadow:`0 0 32px ${C.green}38` }}>
+          <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:10,
+            color:C.green, letterSpacing:'7px', opacity:.35, marginBottom:10 }}>REALTIME</div>
+          <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:28, fontWeight:700,
+            color:'#fff', letterSpacing:'3px', textShadow:`0 0 32px ${C.green}38` }}>
             RESEARCH ENGINE
           </div>
-          <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:8, color:C.green, letterSpacing:'9px', marginTop:10, opacity:.2 }}>v2.0 CLINICAL</div>
+          <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:8,
+            color:C.green, letterSpacing:'9px', marginTop:10, opacity:.2 }}>v2.0 CLINICAL</div>
         </div>
         {children}
       </div>
@@ -40,14 +46,15 @@ function AuthWrap({ children }) {
 }
 
 const ErrBox = ({ msg }) => (
-  <div style={{ color:C.pink, fontSize:13, marginBottom:16, padding:'9px 13px', background:'rgba(255,45,120,.07)', borderRadius:5, border:'1px solid rgba(255,45,120,.22)' }}>{msg}</div>
+  <div style={{ color:C.pink, fontSize:13, marginBottom:16, padding:'9px 13px',
+    background:'rgba(255,45,120,.07)', borderRadius:5, border:'1px solid rgba(255,45,120,.22)' }}>{msg}</div>
 )
 
 export function LoginPage({ onSwitch }) {
   const [username, setUsername] = useState('')
-  const [pw, setPw] = useState('')
-  const [err, setErr] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [pw, setPw]             = useState('')
+  const [err, setErr]           = useState('')
+  const [loading, setLoading]   = useState(false)
 
   const go = async () => {
     if (!username.trim() || !pw) return setErr('Vui lòng điền tên đăng nhập và mật khẩu')
@@ -55,18 +62,21 @@ export function LoginPage({ onSwitch }) {
     try {
       await signInWithEmailAndPassword(auth, toEmail(username.trim()), padPw(pw))
     } catch(e) {
-      setErr(e.code==='auth/invalid-credential'||e.code==='auth/wrong-password' ? 'Tên đăng nhập hoặc mật khẩu không đúng' : 'Lỗi: ' + e.message)
+      setErr(e.code==='auth/invalid-credential'||e.code==='auth/wrong-password'
+        ? 'Tên đăng nhập hoặc mật khẩu không đúng' : 'Lỗi: ' + e.message)
     } finally { setLoading(false) }
   }
 
   return (
     <AuthWrap>
       <HoloPanel style={{ padding:36 }}>
-        <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:11, color:C.green, letterSpacing:'3px', marginBottom:28 }}>◈ ACCESS TERMINAL</div>
+        <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:11,
+          color:C.green, letterSpacing:'3px', marginBottom:28 }}>◈ ACCESS TERMINAL</div>
         <Field label="TÊN ĐĂNG NHẬP" value={username} onChange={setUsername} placeholder="drnguyenvana"/>
         <Field label="MẬT KHẨU" value={pw} onChange={setPw} type="password" placeholder="Nhập mật khẩu"/>
         {err && <ErrBox msg={err}/>}
-        <Btn id="auth-btn" onClick={go} disabled={loading} style={{ width:'100%', justifyContent:'center', padding:'13px', fontSize:14 }}>
+        <Btn id="auth-btn" onClick={go} disabled={loading}
+          style={{ width:'100%', justifyContent:'center', padding:'13px', fontSize:14 }}>
           {loading ? '◌ Đang xác thực...' : 'Đăng nhập'}
         </Btn>
         <div style={{ textAlign:'center', marginTop:20, fontSize:14, color:'rgba(200,230,200,.35)' }}>
@@ -79,13 +89,14 @@ export function LoginPage({ onSwitch }) {
 }
 
 export function RegisterPage({ onSwitch }) {
-  const [f, setF] = useState({ displayName:'', username:'', pw:'', pw2:'' })
-  const [err, setErr] = useState('')
+  const [f, setF]           = useState({ displayName:'', username:'', pw:'', pw2:'' })
+  const [err, setErr]       = useState('')
   const [loading, setLoading] = useState(false)
   const upd = k => v => setF(p=>({...p,[k]:v}))
 
   const go = async () => {
-    if (!f.displayName.trim()||!f.username.trim()||!f.pw) return setErr('Vui lòng điền đầy đủ')
+    if (!f.displayName.trim()||!f.username.trim()||!f.pw)
+      return setErr('Vui lòng điền đầy đủ')
     if (f.pw !== f.pw2) return setErr('Mật khẩu không khớp')
     if (!/^[a-zA-Z0-9_]+$/.test(f.username)) return setErr('Tên đăng nhập chỉ gồm chữ, số, _')
     setLoading(true); setErr('')
@@ -93,8 +104,7 @@ export function RegisterPage({ onSwitch }) {
       const email = toEmail(f.username.trim())
       const cred = await createUserWithEmailAndPassword(auth, email, padPw(f.pw))
       await set(ref(db, `users/${cred.user.uid}`), {
-        name: f.displayName.trim(),
-        username: f.username.trim().toLowerCase(),
+        name: f.displayName.trim(), username: f.username.trim().toLowerCase(),
         email, role:'user', createdAt: Date.now()
       })
     } catch(e) {
@@ -105,18 +115,20 @@ export function RegisterPage({ onSwitch }) {
   return (
     <AuthWrap>
       <HoloPanel style={{ padding:36 }}>
-        <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:11, color:C.green, letterSpacing:'3px', marginBottom:28 }}>◈ REGISTER SYSTEM</div>
-        <Field label="HỌ VÀ TÊN" value={f.displayName} onChange={upd('displayName')} placeholder="Nguyễn Văn A"/>
-        <Field label="TÊN ĐĂNG NHẬP" value={f.username} onChange={upd('username')} placeholder="drnguyenvana" hint="(viết liền không dấu)"/>
-        <Field label="MẬT KHẨU" value={f.pw} onChange={upd('pw')} type="password" placeholder="Tối thiểu 6 ký tự"/>
+        <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:11,
+          color:C.blue, letterSpacing:'3px', marginBottom:28 }}>◈ NEW RESEARCHER</div>
+        <Field label="HỌ TÊN (hiển thị)" value={f.displayName} onChange={upd('displayName')} placeholder="Dr. Nguyen Van A"/>
+        <Field label="TÊN ĐĂNG NHẬP" hint="(không dấu, không khoảng cách)"
+          value={f.username} onChange={upd('username')} placeholder="drnguyenvana"/>
+        <Field label="MẬT KHẨU" value={f.pw} onChange={upd('pw')} type="password" placeholder="Nhập mật khẩu"/>
         <Field label="XÁC NHẬN MẬT KHẨU" value={f.pw2} onChange={upd('pw2')} type="password" placeholder="Nhập lại mật khẩu"/>
         {err && <ErrBox msg={err}/>}
-        <Btn id="auth-btn" onClick={go} disabled={loading} style={{ width:'100%', justifyContent:'center', padding:'13px', fontSize:14 }}>
-          {loading ? '◌ Đang tạo tài khoản...' : 'Đăng ký'}
+        <Btn id="auth-btn" onClick={go} color={C.blue} disabled={loading}
+          style={{ width:'100%', justifyContent:'center', padding:'13px', fontSize:14 }}>
+          {loading ? '◌ Đang tạo...' : 'Tạo tài khoản'}
         </Btn>
-        <div style={{ textAlign:'center', marginTop:20, fontSize:14, color:'rgba(200,230,200,.35)' }}>
-          Đã có tài khoản?{' '}
-          <span onClick={()=>onSwitch('login')} style={{ color:C.green, cursor:'pointer' }}>Đăng nhập</span>
+        <div style={{ textAlign:'center', marginTop:20, fontSize:14 }}>
+          <span onClick={()=>onSwitch('login')} style={{ color:C.green, cursor:'pointer' }}>← Quay lại</span>
         </div>
       </HoloPanel>
     </AuthWrap>
