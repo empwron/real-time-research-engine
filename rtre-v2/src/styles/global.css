@@ -35,3 +35,22 @@ button{font-family:inherit}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @keyframes loadbar{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}
 .fade-in{animation:fadeIn .18s ease forwards}
+
+/* Image popup overlay */
+.img-popup-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  cursor: pointer;
+}
+.img-popup-overlay img {
+  max-width: 90vw;
+  max-height: 90vh;
+  border-radius: 8px;
+  border: 1px solid rgba(0,250,154,.3);
+  box-shadow: 0 0 40px rgba(0,250,154,.15);
+}

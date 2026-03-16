@@ -15,6 +15,7 @@ export const VAR_TYPES = [
   { value:'id',          label:'Mã / ID mẫu' },
   { value:'name',        label:'Tên đối tượng' },
   { value:'date',        label:'Ngày tháng' },
+  { value:'image',       label:'Hình ảnh (clipboard)' },
 ]
 
 export const isNumType = t => ['number','integer','percent','ordinal','binary'].includes(t)
@@ -22,7 +23,7 @@ export const isNumType = t => ['number','integer','percent','ordinal','binary'].
 export function InputTab({ project }) {
   const [row, setRow]       = useState({})
   const [popup, setPopup]   = useState(false)
-  const [nv, setNv]         = useState({ name:'', type:'number' })
+  const [nv, setNv]         = useState({ name:'', codeName:'', type:'number' })
   const [ok, setOk]         = useState(false)
   const [saving, setSaving] = useState(false)
   const [csvErr, setCsvErr] = useState('')
@@ -65,7 +66,7 @@ export function InputTab({ project }) {
         for (const h of headers) {
           if (!existingNames.includes(h.toLowerCase())) {
             const vr = push(ref(db, `projects/${project.id}/variables`), {
-              name: h, type:'string', order: nextOrder++
+              name: h, codeName: h.replace(/\s+/g,'_').toLowerCase(), type:'string', order: nextOrder++
             })
             varMap[h.toLowerCase()] = vr.key
           }
@@ -100,10 +101,11 @@ export function InputTab({ project }) {
   // ─── Add variable ─────────────────────────────────────────────────────────
   const addVar = async () => {
     if (!nv.name.trim()) return
+    const codeName = nv.codeName.trim() || nv.name.trim().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'').toLowerCase()
     await push(ref(db, `projects/${project.id}/variables`), {
-      name: nv.name.trim(), type: nv.type, order: sortedVars.length
+      name: nv.name.trim(), codeName, type: nv.type, order: sortedVars.length
     })
-    setPopup(false); setNv({ name:'', type:'number' })
+    setPopup(false); setNv({ name:'', codeName:'', type:'number' })
   }
 
   // ─── Submit row ───────────────────────────────────────────────────────────
@@ -112,7 +114,11 @@ export function InputTab({ project }) {
     const nr = { createdAt: Date.now() }
     sortedVars.forEach(v => {
       const val = row[v.id]
-      nr[v.id] = isNumType(v.type) && val!==''&&val!==undefined ? Number(val) : (val??'')
+      if (v.type === 'image') {
+        nr[v.id] = val || '' // base64 string
+      } else {
+        nr[v.id] = isNumType(v.type) && val!==''&&val!==undefined ? Number(val) : (val??'')
+      }
     })
     try {
       await push(ref(db, `projects/${project.id}/rows`), nr)
@@ -121,8 +127,47 @@ export function InputTab({ project }) {
     finally { setSaving(false) }
   }
 
+  // ─── Clipboard paste for image ────────────────────────────────────────────
+  const handlePaste = (e, vid) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault()
+        const file = item.getAsFile()
+        const reader = new FileReader()
+        reader.onload = ev => {
+          setRow(p => ({...p, [vid]: ev.target.result}))
+        }
+        reader.readAsDataURL(file)
+        return
+      }
+    }
+  }
+
   const renderField = v => {
     const val = row[v.id]
+    if (v.type === 'image') return (
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <div
+          tabIndex={0}
+          onPaste={e => handlePaste(e, v.id)}
+          style={{ flex:1, background:'rgba(255,255,255,.04)', border:'1px dashed rgba(255,255,255,.15)',
+            borderRadius:5, padding:'6px 10px', fontSize:12, color:'rgba(200,230,200,.4)',
+            cursor:'text', minHeight:32, display:'flex', alignItems:'center', gap:6 }}>
+          {val ? (
+            <>
+              <img src={val} alt="" style={{ width:24, height:24, objectFit:'cover', borderRadius:3, border:'1px solid rgba(0,250,154,.3)' }}/>
+              <span style={{ color:C.green, fontSize:11 }}>✓ Đã dán</span>
+              <span onClick={()=>setRow(p=>({...p,[v.id]:''})) }
+                style={{ color:C.pink, cursor:'pointer', fontSize:11, marginLeft:'auto' }}>✕</span>
+            </>
+          ) : (
+            <span>Ctrl+V để dán ảnh từ clipboard</span>
+          )}
+        </div>
+      </div>
+    )
     if (v.type==='binary') return (
       <select value={val??''} onChange={e=>setRow(p=>({...p,[v.id]:e.target.value}))}
         style={{fontSize:13}}>
@@ -172,7 +217,7 @@ export function InputTab({ project }) {
         </div>
       )}
 
-      {/* Variable list (drag-drop + inline input) */}
+      {/* Variable list */}
       <div style={{ flex:1, overflow:'auto', minHeight:0 }}>
         {sortedVars.length===0&&(
           <div style={{ color:'rgba(200,230,200,.25)', fontSize:13, padding:20,
@@ -192,18 +237,18 @@ export function InputTab({ project }) {
               background:dragOver===idx?'rgba(0,229,255,.08)':'rgba(255,255,255,.025)',
               border:`1px solid ${dragOver===idx?C.cyan:'rgba(255,255,255,.06)'}`,
               borderRadius:5, cursor:'grab', transition:'border-color .15s' }}>
-            {/* Drag handle */}
             <span style={{ color:'rgba(200,230,200,.2)', fontSize:14, cursor:'grab',
               textAlign:'center', userSelect:'none' }}>⠿</span>
-            {/* Field */}
             <div>
-              <div style={{ fontSize:12, color:'rgba(200,230,200,.45)', marginBottom:3 }}>{v.name}</div>
+              <div style={{ fontSize:12, color:'rgba(200,230,200,.45)', marginBottom:3 }}>
+                {v.name}
+                {v.codeName && <span style={{ fontSize:10, color:'rgba(200,230,200,.2)', marginLeft:6 }}>({v.codeName})</span>}
+              </div>
               {renderField(v)}
             </div>
-            {/* Type badge */}
             <span style={{ fontSize:10, color:'rgba(200,230,200,.25)', textAlign:'right',
               whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-              {v.type}
+              {v.type === 'image' ? '🖼' : v.type}
             </span>
           </div>
         ))}
@@ -226,7 +271,7 @@ export function InputTab({ project }) {
       {popup&&(
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.8)',
           display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
-          <div className="fade-in" style={{ width:360, maxWidth:'90vw' }}>
+          <div className="fade-in" style={{ width:380, maxWidth:'90vw' }}>
             <HoloPanel style={{ padding:26 }}>
               <div style={{ display:'flex', justifyContent:'space-between',
                 alignItems:'center', marginBottom:22 }}>
@@ -235,21 +280,34 @@ export function InputTab({ project }) {
                 <span onClick={()=>setPopup(false)}
                   style={{ color:'rgba(200,230,200,.4)', cursor:'pointer', fontSize:20, lineHeight:1 }}>✕</span>
               </div>
-              <div style={{ marginBottom:16 }}>
-                <label style={{ fontSize:13, color:'rgba(200,230,200,.5)', display:'block', marginBottom:6 }}>
+              <div style={{ marginBottom:14 }}>
+                <label style={{ fontSize:13, color:'rgba(200,230,200,.5)', display:'block', marginBottom:5 }}>
                   TÊN BIẾN *
                 </label>
                 <input value={nv.name} onChange={e=>setNv(p=>({...p,name:e.target.value}))}
                   placeholder="Creatinine, Tuổi, ID mẫu, Tên BN..." autoFocus
                   onKeyDown={e=>e.key==='Enter'&&nv.name.trim()&&addVar()}/>
               </div>
+              <div style={{ marginBottom:14 }}>
+                <label style={{ fontSize:13, color:'rgba(200,230,200,.5)', display:'block', marginBottom:5 }}>
+                  TÊN MÃ HÓA <span style={{ fontSize:10, color:'rgba(200,230,200,.25)' }}>(code name, tùy chọn)</span>
+                </label>
+                <input value={nv.codeName} onChange={e=>setNv(p=>({...p,codeName:e.target.value}))}
+                  placeholder={nv.name ? nv.name.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'').toLowerCase() : 'vd: creatinine, age, sample_id'}
+                  style={{ fontSize:13 }}/>
+              </div>
               <div style={{ marginBottom:22 }}>
-                <label style={{ fontSize:13, color:'rgba(200,230,200,.5)', display:'block', marginBottom:6 }}>
+                <label style={{ fontSize:13, color:'rgba(200,230,200,.5)', display:'block', marginBottom:5 }}>
                   LOẠI BIẾN
                 </label>
                 <select value={nv.type} onChange={e=>setNv(p=>({...p,type:e.target.value}))}>
                   {VAR_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
+                {nv.type === 'image' && (
+                  <div style={{ fontSize:11, color:C.gold, marginTop:6, opacity:.7 }}>
+                    💡 Dán ảnh từ clipboard (Ctrl+V) khi nhập dữ liệu. Ảnh lưu dạng base64.
+                  </div>
+                )}
               </div>
               <div style={{ display:'flex', gap:10 }}>
                 <Btn onClick={addVar} color={C.cyan} disabled={!nv.name.trim()}

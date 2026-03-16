@@ -15,13 +15,13 @@ import './styles/global.css'
 // ─── Demo seed ────────────────────────────────────────────────────────────────
 function seedDemo(uid) {
   const vars = [
-    {name:'ID Mẫu',group:'',type:'id',order:0},
-    {name:'Tên BN',group:'',type:'name',order:1},
-    {name:'Tuổi',group:'',type:'number',order:2},
-    {name:'Giới tính',group:'',type:'categorical',order:3},
-    {name:'HA tâm thu',group:'',type:'number',order:4},
-    {name:'HA tâm trương',group:'',type:'number',order:5},
-    {name:'Biến cố',group:'',type:'binary',order:6},
+    {name:'ID Mẫu',codeName:'sample_id',group:'',type:'id',order:0},
+    {name:'Tên BN',codeName:'patient_name',group:'',type:'name',order:1},
+    {name:'Tuổi',codeName:'age',group:'',type:'number',order:2},
+    {name:'Giới tính',codeName:'sex',group:'',type:'categorical',order:3},
+    {name:'HA tâm thu',codeName:'sbp',group:'',type:'number',order:4},
+    {name:'HA tâm trương',codeName:'dbp',group:'',type:'number',order:5},
+    {name:'Biến cố',codeName:'event',group:'',type:'binary',order:6},
   ]
   const rows=[[`BN001`,'Nguyễn Văn A',45,'Nam',130,85,0],['BN002','Trần Thị B',52,'Nữ',145,92,1],
     ['BN003','Lê Văn C',38,'Nam',120,78,0],['BN004','Phạm Thị D',61,'Nữ',165,100,1],
@@ -252,13 +252,26 @@ export default function App() {
 
   // Panel sizes in pixels
   const containerRef = useRef(null)
-  const [leftW, setLeftW]   = useState(240) // Input panel width
-  const [topH,  setTopH]    = useState(0)   // Will init after mount
+  const userMenuRef = useRef(null)
+  const [leftW, setLeftW]   = useState(240)
+  const [topH,  setTopH]    = useState(0)
 
   useEffect(()=>{
     const h = window.innerHeight - 48
     setTopH(Math.round(h * 0.42))
   },[])
+
+  // ─── Click-outside to close user menu ──────────────────────────────────────
+  useEffect(() => {
+    if (!showUserMenu) return
+    const handler = (e) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+        setShowUserMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showUserMenu])
 
   // Auth
   useEffect(()=>{
@@ -305,7 +318,6 @@ export default function App() {
   if(page==='register') return <RegisterPage onSwitch={setPage}/>
   if(page==='admin')    return <AdminPage user={userMeta} onLogout={logout}/>
 
-  // Project tree
   const topProjects = projects.filter(p=>!p.parentId)
   const subOf = pid => projects.filter(p=>p.parentId===pid)
 
@@ -314,7 +326,6 @@ export default function App() {
       {/* Header */}
       <div style={{height:48,background:'rgba(0,0,0,.65)',borderBottom:'1px solid rgba(255,255,255,.07)',
         display:'flex',alignItems:'center',padding:'0 14px',flexShrink:0,gap:10}}>
-        {/* Sidebar toggle */}
         <span onClick={()=>setSidebar(s=>!s)}
           style={{color:C.green,cursor:'pointer',fontSize:16,opacity:.6,userSelect:'none',
             padding:'4px 6px',borderRadius:3,transition:'opacity .15s'}}
@@ -326,8 +337,8 @@ export default function App() {
           RESEARCH ENGINE
         </span>
         <div style={{flex:1}}/>
-        {/* User menu */}
-        <div style={{position:'relative'}}>
+        {/* User menu with click-outside-to-close */}
+        <div ref={userMenuRef} style={{position:'relative'}}>
           <div onClick={()=>setShowUserMenu(s=>!s)}
             style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',
               padding:'5px 10px',borderRadius:5,transition:'background .15s',
@@ -392,28 +403,18 @@ export default function App() {
         {/* 3-panel layout */}
         {activeProject?(
           <div style={{flex:1,display:'flex',overflow:'hidden',minWidth:0,padding:8,gap:0}}>
-            {/* Left: Input */}
             <Panel panelKey="input" style={{width:leftW,flexShrink:0}}>
               <InputTab project={activeProject}/>
             </Panel>
-
-            {/* Horizontal divider */}
             <Divider onDrag={delta=>setLeftW(w=>Math.max(180,Math.min(500,w+delta)))}/>
-
-            {/* Right: Table + Chart stacked */}
             <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0,gap:0}}>
-              {/* Top: Table */}
               <Panel panelKey="table" style={{height:topH,flexShrink:0}}>
                 <TableTab project={activeProject}/>
               </Panel>
-
-              {/* Vertical divider */}
               <Divider vertical onDrag={delta=>{
                 const maxH = (containerRef.current?.clientHeight||600) - 48 - 16
                 setTopH(h=>Math.max(120,Math.min(maxH-120,h+delta)))
               }}/>
-
-              {/* Bottom: Chart */}
               <Panel panelKey="chart" style={{flex:1,minHeight:120}}>
                 <ChartTab project={activeProject}/>
               </Panel>

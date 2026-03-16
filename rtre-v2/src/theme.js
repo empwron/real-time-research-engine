@@ -16,4 +16,4 @@ export const RGB = {
   '#FF6B35': '255,107,53',
   '#00E5FF': '0,229,255',
 }
-export const CHART_COLORS = ['#00FA9A','#00BFFF','#FF2D78','#BF5FFF','#FFD700','#FF6B35']
+export const CHART_COLORS = ['#00FA9A','#00BFFF','#FF2D78','#BF5FFF','#FFD700','#FF6B35','#00E5FF','#FF9500','#7B68EE','#20B2AA']

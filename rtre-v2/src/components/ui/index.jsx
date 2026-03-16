@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { RGB } from '../../theme.js'
 
-export const Btn = ({ onClick, children, color='#00FA9A', outline=false, small=false, style:s={}, disabled=false }) => {
+export const Btn = ({ onClick, children, color='#00FA9A', outline=false, small=false, style:s={}, disabled=false, id, title }) => {
   const [hov, setHov] = useState(false)
   const rgb = RGB[color] || '200,200,200'
   return (
-    <button onClick={onClick} disabled={disabled}
+    <button onClick={onClick} disabled={disabled} id={id} title={title}
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       style={{
         background: outline ? 'transparent' : hov ? `rgba(${rgb},.18)` : `rgba(${rgb},.07)`,
@@ -59,5 +59,26 @@ export const Pill = ({ label, value, color = '#00FA9A' }) => {
       <div style={{ fontSize:8, color:`${color}88`, letterSpacing:'2px', marginBottom:3, fontFamily:'Orbitron' }}>{label}</div>
       <div style={{ fontSize:13, color, fontFamily:'Orbitron', fontWeight:700 }}>{value ?? '—'}</div>
     </div>
+  )
+}
+
+export const InfoTip = ({ text, color='rgba(200,230,200,.4)' }) => {
+  const [show, setShow] = useState(false)
+  return (
+    <span style={{ position:'relative', display:'inline-block' }}
+      onMouseEnter={()=>setShow(true)} onMouseLeave={()=>setShow(false)}>
+      <span style={{ cursor:'help', fontSize:12, color, fontWeight:700,
+        width:16, height:16, borderRadius:'50%', border:`1px solid ${color}`,
+        display:'inline-flex', alignItems:'center', justifyContent:'center', lineHeight:1 }}>?</span>
+      {show && (
+        <div style={{ position:'absolute', bottom:'calc(100% + 6px)', left:'50%', transform:'translateX(-50%)',
+          background:'rgba(5,5,18,.96)', border:'1px solid rgba(0,250,154,.3)', borderRadius:5,
+          padding:'8px 12px', fontSize:12, color:'rgba(200,230,200,.75)', whiteSpace:'normal',
+          width:260, zIndex:999, boxShadow:'0 4px 16px rgba(0,0,0,.5)', lineHeight:1.5,
+          pointerEvents:'none' }}>
+          {text}
+        </div>
+      )}
+    </span>
   )
 }

@@ -1,12 +1,15 @@
 import { descriptive, freqTable } from './statistics.js'
 
 export function exportDataCSV(project) {
-  const { variables, rows, name } = project
+  const vars = [...project.variables].sort((a,b)=>(a.order??0)-(b.order??0))
+  const { rows, name } = project
   if (!rows.length) return alert('Không có dữ liệu để export')
-  const headers = ['#', ...variables.map(v => v.name)]
+  // Filter out image variables
+  const exportVars = vars.filter(v => v.type !== 'image')
+  const headers = ['#', ...exportVars.map(v => v.name)]
   const lines = [headers.join(',')]
   rows.forEach((row, i) => {
-    const vals = [i+1, ...variables.map(v => {
+    const vals = [i+1, ...exportVars.map(v => {
       const val = row[v.id]
       if (val === undefined || val === '') return ''
       return String(val).includes(',') ? `"${val}"` : val
@@ -18,7 +21,7 @@ export function exportDataCSV(project) {
 
 export function exportStatsCSV(project) {
   const { variables, rows, name } = project
-  const numVars = variables.filter(v => ['number','ordinal','binary'].includes(v.type))
+  const numVars = variables.filter(v => ['number','integer','percent','ordinal','binary'].includes(v.type))
   const catVars = variables.filter(v => v.type === 'categorical')
   const lines = []
   lines.push(`REAL TIME RESEARCH ENGINE — Statistical Summary`)

@@ -16,6 +16,7 @@ export function TableTab({ project }) {
   const [editVal, setEVal]    = useState('')
   const [varColors, setVarColors] = useState({})
   const [showColorPicker, setShowColorPicker] = useState(null)
+  const [imgPopup, setImgPopup] = useState(null)
   const dragColIdx = useRef(null)
   const [dragOverCol, setDragOverCol] = useState(null)
 
@@ -25,7 +26,13 @@ export function TableTab({ project }) {
   const fs  = Math.round(13*zoom)
   const cp  = `${Math.round(7*zoom)}px ${Math.round(11*zoom)}px`
 
-  const cellClick = (e,rId,vId,curVal) => {
+  const cellClick = (e,rId,vId,curVal,varType) => {
+    if (varType === 'image') {
+      if (curVal && typeof curVal === 'string' && curVal.startsWith('data:')) {
+        setImgPopup(curVal)
+      }
+      return
+    }
     const k=key(rId,vId)
     if(e.shiftKey) setHl(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n})
     else if(e.altKey) setItals(p=>{const n=new Set(p);n.has(k)?n.delete(k):n.add(k);return n})
@@ -55,6 +62,23 @@ export function TableTab({ project }) {
   }
 
   const getVarColor = (v, idx) => varColors[v.id] || DEF_COL_COLORS[idx % DEF_COL_COLORS.length]
+
+  const renderCellContent = (v, val, vi) => {
+    if (v.type === 'image') {
+      if (val && typeof val === 'string' && val.startsWith('data:')) {
+        return (
+          <span style={{ display:'inline-flex', alignItems:'center', gap:4 }}>
+            <img src={val} alt="" style={{ width: Math.round(22*zoom), height: Math.round(22*zoom),
+              objectFit:'cover', borderRadius:3, border:'1px solid rgba(0,250,154,.3)', cursor:'pointer' }}/>
+            <span style={{ fontSize: Math.round(10*zoom), color:'rgba(200,230,200,.3)' }}>🖼</span>
+          </span>
+        )
+      }
+      return <span style={{opacity:.2}}>—</span>
+    }
+    if (val !== undefined && val !== '') return String(val)
+    return <span style={{opacity:.2}}>—</span>
+  }
 
   return (
     <div style={{ height:'100%', display:'flex', flexDirection:'column', overflow:'hidden', padding:8 }}>
@@ -88,11 +112,12 @@ export function TableTab({ project }) {
                     style={{ padding:cp, textAlign:'left', whiteSpace:'nowrap', userSelect:'none',
                       borderBottom:'1px solid rgba(191,95,255,.2)', cursor:'grab',
                       background:dragOverCol===idx?'rgba(191,95,255,.15)':'',
-                      transition:'background .15s', borderTop:dragOverCol===idx?`2px solid ${vc}`:'2px solid transparent' }}>
+                      transition:'background .15s', borderTop:dragOverCol===idx?`2px solid ${vc}`:'2px solid transparent',
+                      position:'relative' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                       <span style={{ color:vc, fontSize:Math.round(12*zoom), fontWeight:600 }}>{v.name}</span>
                       <span style={{ color:'rgba(200,230,200,.25)', fontSize:Math.round(10*zoom) }}>
-                        [{v.type?.slice(0,3)}]
+                        [{v.type==='image'?'img':v.type?.slice(0,3)}]
                       </span>
                       {/* Color picker toggle */}
                       <span onClick={e=>{e.stopPropagation();setShowColorPicker(showColorPicker===v.id?null:v.id)}}
@@ -100,7 +125,8 @@ export function TableTab({ project }) {
                           cursor:'pointer', display:'inline-block', flexShrink:0,
                           boxShadow:`0 0 4px ${vc}80` }}/>
                       {showColorPicker===v.id&&(
-                        <div style={{ position:'absolute', top:'100%', left:0, zIndex:100,
+                        <div onClick={e=>e.stopPropagation()}
+                          style={{ position:'absolute', top:'100%', left:0, zIndex:100,
                           background:'#0D0D1F', border:'1px solid rgba(191,95,255,.3)',
                           borderRadius:5, padding:8, display:'flex', flexWrap:'wrap', gap:5, width:130 }}>
                           {DEF_COL_COLORS.map(c=>(
@@ -129,16 +155,16 @@ export function TableTab({ project }) {
                   const vc = getVarColor(v,vi)
                   return (
                     <td key={v.id}
-                      style={{ padding:cp, cursor:'pointer', maxWidth:160,
+                      style={{ padding:cp, cursor:'pointer', maxWidth:v.type==='image'?60:160,
                         background:isHL?`rgba(${vc.replace('#','').match(/../g).map(x=>parseInt(x,16)).join(',')}, .12)`:'',
                         color:isHL?vc:'rgba(210,235,210,.72)',
                         fontWeight:isBold?700:400, fontStyle:isItal?'italic':'normal',
                         transition:'background .1s' }}
                       onMouseEnter={e=>{if(!isHL)e.currentTarget.style.background='rgba(191,95,255,.06)'}}
                       onMouseLeave={e=>{if(!isHL)e.currentTarget.style.background=''}}
-                      onClick={e=>cellClick(e,row.id,v.id,val)}
+                      onClick={e=>cellClick(e,row.id,v.id,val,v.type)}
                       onContextMenu={e=>ctxMenu(e,row.id,v.id)}>
-                      {isEdit?(
+                      {isEdit && v.type !== 'image' ?(
                         <input autoFocus value={editVal}
                           onChange={e=>setEVal(e.target.value)}
                           onBlur={()=>commit(row.id,v.id)}
@@ -149,7 +175,7 @@ export function TableTab({ project }) {
                       ):(
                         <span style={{ overflow:'hidden', textOverflow:'ellipsis',
                           whiteSpace:'nowrap', display:'block' }}>
-                          {val!==undefined&&val!==''?String(val):<span style={{opacity:.2}}>—</span>}
+                          {renderCellContent(v, val, vi)}
                         </span>
                       )}
                     </td>
@@ -173,6 +199,13 @@ export function TableTab({ project }) {
       <div style={{ marginTop:4, fontSize:11, color:'rgba(200,230,200,.18)', flexShrink:0 }}>
         ⠿ Kéo cột để đổi thứ tự · Click màu ● để đổi màu cột
       </div>
+
+      {/* Image popup */}
+      {imgPopup && (
+        <div className="img-popup-overlay" onClick={()=>setImgPopup(null)}>
+          <img src={imgPopup} alt="Preview" onClick={e=>e.stopPropagation()}/>
+        </div>
+      )}
     </div>
   )
 }

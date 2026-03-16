@@ -153,6 +153,63 @@ export const logisticRegression = (xArr, yArr, epochs=2000, lr=0.05) => {
     n, tp, tn, fp, fn }
 }
 
+export const chiSquare = (var1Arr, var2Arr) => {
+  const pairs = var1Arr.map((v,i)=>[v, var2Arr[i]]).filter(([a,b])=>a!=null&&a!==''&&b!=null&&b!=='')
+  if (pairs.length < 5) return null
+  const vals1 = [...new Set(pairs.map(p=>p[0]))]
+  const vals2 = [...new Set(pairs.map(p=>p[1]))]
+  if (vals1.length < 2 || vals2.length < 2) return null
+  
+  const observed = {}
+  vals1.forEach(v1 => { observed[v1] = {}; vals2.forEach(v2 => { observed[v1][v2] = 0 }) })
+  pairs.forEach(([a,b]) => { if(observed[a]) observed[a][b] = (observed[a][b]||0)+1 })
+  
+  const rowTotals = {}, colTotals = {}, n = pairs.length
+  vals1.forEach(v1 => { rowTotals[v1] = vals2.reduce((s,v2)=>s+(observed[v1][v2]||0),0) })
+  vals2.forEach(v2 => { colTotals[v2] = vals1.reduce((s,v1)=>s+(observed[v1][v2]||0),0) })
+  
+  let chi2 = 0
+  vals1.forEach(v1 => {
+    vals2.forEach(v2 => {
+      const exp = rowTotals[v1]*colTotals[v2]/n
+      if (exp > 0) chi2 += (observed[v1][v2]-exp)**2/exp
+    })
+  })
+  
+  const df = (vals1.length-1)*(vals2.length-1)
+  const p = 1 - gammaCDF(chi2/2, df/2)
+  const cramersV = Math.sqrt(chi2/(n*Math.min(vals1.length-1,vals2.length-1)))
+  
+  return { chi2: +chi2.toFixed(4), df, p: +p.toFixed(4), n, cramersV: +cramersV.toFixed(4),
+    significant: p < .05,
+    interpretation: p<.001?'p < 0.001 (***)':p<.01?`p = ${p.toFixed(3)} (**)`:p<.05?`p = ${p.toFixed(3)} (*)`:`p = ${p.toFixed(3)} (ns)` }
+}
+
+export const oneWayAnova = (groups) => {
+  const cleaned = groups.map(g => clean(g)).filter(g => g.length >= 2)
+  if (cleaned.length < 2) return null
+  const allN = cleaned.reduce((s,g)=>s+g.length,0)
+  const grandMean = cleaned.flat().reduce((s,v)=>s+v,0)/allN
+  
+  let ssBetween = 0, ssWithin = 0
+  cleaned.forEach(g => {
+    const gMean = g.reduce((s,v)=>s+v,0)/g.length
+    ssBetween += g.length * (gMean - grandMean)**2
+    g.forEach(v => { ssWithin += (v-gMean)**2 })
+  })
+  
+  const dfB = cleaned.length - 1, dfW = allN - cleaned.length
+  const msB = ssBetween/dfB, msW = ssWithin/dfW
+  const F = msW > 0 ? msB/msW : NaN
+  const p = 1 - fCDF(F, dfB, dfW)
+  const eta2 = ssBetween/(ssBetween+ssWithin)
+  
+  return { F: +F.toFixed(4), dfBetween: dfB, dfWithin: dfW, p: +p.toFixed(4),
+    eta2: +eta2.toFixed(4), n: allN, nGroups: cleaned.length,
+    significant: p < .05,
+    interpretation: p<.001?'p < 0.001 (***)':p<.01?`p = ${p.toFixed(3)} (**)`:p<.05?`p = ${p.toFixed(3)} (*)`:`p = ${p.toFixed(3)} (ns)` }
+}
+
 export const freqTable = arr => {
   const counts = {}
   arr.forEach(v => { if(v!==''&&v!=null) counts[v]=(counts[v]||0)+1 })
@@ -194,4 +251,23 @@ function lgamma(x){
   let y=x,tmp=x+5.5;tmp-=(x+.5)*Math.log(tmp);let ser=1.000000000190015
   for(const ci of c) ser+=ci/++y
   return -tmp+Math.log(2.5066282746310005*ser/x)
+}
+
+function gammaCDF(x, a) {
+  if (x <= 0) return 0
+  if (x >= a + 10*Math.sqrt(a) + 50) return 1
+  // Series expansion for lower incomplete gamma
+  let sum = 1/a, term = 1/a
+  for (let n=1; n<200; n++) {
+    term *= x/(a+n)
+    sum += term
+    if (Math.abs(term) < 1e-10) break
+  }
+  return Math.min(1, sum * Math.exp(-x + a*Math.log(x) - lgamma(a)))
+}
+
+function fCDF(f, d1, d2) {
+  if (f <= 0) return 0
+  const x = d1*f/(d1*f+d2)
+  return 1 - incompleteBeta(d2/2, d1/2, 1-x)
 }
