@@ -77,6 +77,42 @@ export const spearmanR=(x,y)=>{const px=clean(x),py=clean(y),n=Math.min(px.lengt
 
 export const welchTTest=(g1,g2)=>{const a=clean(g1),b=clean(g2);if(a.length<2||b.length<2)return null;const m1=mean(a),m2=mean(b),s1=variance(a),s2=variance(b),n1=a.length,n2=b.length;const se=Math.sqrt(s1/n1+s2/n2);if(se===0)return null;const t=(m1-m2)/se;const df=(s1/n1+s2/n2)**2/((s1/n1)**2/(n1-1)+(s2/n2)**2/(n2-1));const p=tToPValue(t,df);const cohend=Math.abs(m1-m2)/Math.sqrt(((n1-1)*s1+(n2-1)*s2)/(n1+n2-2));return{t:+t.toFixed(4),df:+df.toFixed(1),p:+p.toFixed(4),mean1:+m1.toFixed(3),mean2:+m2.toFixed(3),sd1:+Math.sqrt(s1).toFixed(3),sd2:+Math.sqrt(s2).toFixed(3),n1,n2,cohend:+cohend.toFixed(3),significant:p<.05,interpretation:p<.001?'p < 0.001 (***)':p<.01?`p = ${p.toFixed(3)} (**)`:p<.05?`p = ${p.toFixed(3)} (*)`:`p = ${p.toFixed(3)} (ns)`}}
 export const mannWhitneyU=(g1,g2)=>{const a=clean(g1),b=clean(g2);if(a.length<2||b.length<2)return null;const n1=a.length,n2=b.length;let u1=0;for(const x of a)for(const y of b)u1+=x>y?1:x===y?.5:0;const U=Math.min(u1,n1*n2-u1);const z=(U-n1*n2/2)/Math.sqrt(n1*n2*(n1+n2+1)/12);const p=2*(1-normalCDF(Math.abs(z)));const rbc=1-2*U/(n1*n2);return{U:+U.toFixed(1),z:+z.toFixed(3),p:+p.toFixed(4),n1,n2,rbc:+rbc.toFixed(3),significant:p<.05,interpretation:p<.001?'p < 0.001 (***)':p<.01?`p = ${p.toFixed(3)} (**)`:p<.05?`p = ${p.toFixed(3)} (*)`:`p = ${p.toFixed(3)} (ns)`}}
+
+// Paired t-test
+export const pairedTTest=(g1,g2)=>{
+  const a=clean(g1),b=clean(g2),n=Math.min(a.length,b.length);if(n<3)return null
+  const diffs=[];for(let i=0;i<n;i++)diffs.push(a[i]-b[i])
+  const md=diffs.reduce((s,v)=>s+v,0)/n
+  const sdD=Math.sqrt(diffs.reduce((s,v)=>s+(v-md)**2,0)/(n-1))
+  if(sdD===0)return null
+  const t=md/(sdD/Math.sqrt(n)),df=n-1
+  const p=tToPValue(t,df)
+  const cohend=Math.abs(md)/sdD
+  return{t:+t.toFixed(4),df,p:+p.toFixed(4),meanDiff:+md.toFixed(3),sdDiff:+sdD.toFixed(3),n,
+    cohend:+cohend.toFixed(3),significant:p<.05,
+    interpretation:p<.001?'p < 0.001 (***)':p<.01?`p = ${p.toFixed(3)} (**)`:p<.05?`p = ${p.toFixed(3)} (*)`:`p = ${p.toFixed(3)} (ns)`}
+}
+
+// Wilcoxon signed-rank test (non-parametric paired)
+export const wilcoxonSignedRank=(g1,g2)=>{
+  const a=clean(g1),b=clean(g2),n=Math.min(a.length,b.length);if(n<5)return null
+  const diffs=[];for(let i=0;i<n;i++){const d=a[i]-b[i];if(d!==0)diffs.push(d)}
+  if(diffs.length<3)return null
+  const absDiffs=diffs.map(d=>Math.abs(d))
+  const ranked=absDiffs.map((v,i)=>({v,i})).sort((a2,b2)=>a2.v-b2.v)
+  const ranks2=new Array(absDiffs.length)
+  let i2=0;while(i2<ranked.length){let j=i2;while(j<ranked.length-1&&ranked[j+1].v===ranked[i2].v)j++;const r=(i2+j)/2+1;for(let k=i2;k<=j;k++)ranks2[ranked[k].i]=r;i2=j+1}
+  let wPlus=0,wMinus=0
+  diffs.forEach((d,i3)=>{if(d>0)wPlus+=ranks2[i3];else wMinus+=ranks2[i3]})
+  const W=Math.min(wPlus,wMinus),nR=diffs.length
+  const muW=nR*(nR+1)/4,sigW=Math.sqrt(nR*(nR+1)*(2*nR+1)/24)
+  const z=sigW>0?(W-muW)/sigW:0
+  const p=2*(1-normalCDF(Math.abs(z)))
+  const rEff=1-2*W/(nR*(nR+1)/2)
+  return{W:+W.toFixed(1),z:+z.toFixed(3),p:+p.toFixed(4),nPairs:nR,
+    rEffect:+rEff.toFixed(3),significant:p<.05,
+    interpretation:p<.001?'p < 0.001 (***)':p<.01?`p = ${p.toFixed(3)} (**)`:p<.05?`p = ${p.toFixed(3)} (*)`:`p = ${p.toFixed(3)} (ns)`}
+}
 export const linearRegression=(xArr,yArr)=>{const x=clean(xArr),y=clean(yArr),n=Math.min(x.length,y.length);if(n<3)return null;const xi=x.slice(0,n),yi=y.slice(0,n),mx=mean(xi),my=mean(yi);let sxy=0,sxx=0;for(let i=0;i<n;i++){sxy+=(xi[i]-mx)*(yi[i]-my);sxx+=(xi[i]-mx)**2}const b=sxx>0?sxy/sxx:NaN,a=my-b*mx;const yH=xi.map(v=>a+b*v),ssr=yi.reduce((s,v,i)=>s+(v-yH[i])**2,0),sst=yi.reduce((s,v)=>s+(v-my)**2,0);const r2=sst>0?1-ssr/sst:NaN,mse=ssr/(n-2),seb=Math.sqrt(mse/sxx),tb=b/seb,pb=tToPValue(tb,n-2);return{intercept:+a.toFixed(4),slope:+b.toFixed(4),r2:+r2.toFixed(4),r2adj:+(1-(1-r2)*(n-1)/(n-2)).toFixed(4),rmse:+Math.sqrt(mse).toFixed(4),p:+pb.toFixed(4),t:+tb.toFixed(3),n,significant:pb<.05,interpretation:pb<.001?'p < 0.001 (***)':pb<.01?`p = ${pb.toFixed(3)} (**)`:pb<.05?`p = ${pb.toFixed(3)} (*)`:`p = ${pb.toFixed(3)} (ns)`}}
 export const logisticRegression=(xArr,yArr,epochs=2000,lr=0.05)=>{const x=clean(xArr),y=clean(yArr.map(Number)),n=Math.min(x.length,y.length);if(n<10)return null;const xi=x.slice(0,n),yi=y.slice(0,n),mx=mean(xi),sx=std(xi);const xs=xi.map(v=>sx>0?(v-mx)/sx:0);let w=0,b2=0;for(let e=0;e<epochs;e++){let dw=0,db=0;for(let i=0;i<n;i++){const p=sig(w*xs[i]+b2);dw+=(p-yi[i])*xs[i];db+=(p-yi[i])}w-=lr*dw/n;b2-=lr*db/n}const rW=sx>0?w/sx:w,rB=b2-rW*mx;const probs=xi.map(v=>sig(rW*v+rB)),preds=probs.map(p=>p>=.5?1:0),correct=preds.filter((p,i)=>p===yi[i]).length;const pb=mean(yi),ll0=yi.reduce((s,v)=>s+Math.log(pb+1e-10)*v+Math.log(1-pb+1e-10)*(1-v),0),ll1=yi.reduce((s,v,i)=>s+Math.log(probs[i]+1e-10)*v+Math.log(1-probs[i]+1e-10)*(1-v),0);const tp=preds.filter((p,i)=>p===1&&yi[i]===1).length,tn=preds.filter((p,i)=>p===0&&yi[i]===0).length,fp=preds.filter((p,i)=>p===1&&yi[i]===0).length,fn=preds.filter((p,i)=>p===0&&yi[i]===1).length;return{intercept:+rB.toFixed(4),coefficient:+rW.toFixed(4),or:+Math.exp(rW).toFixed(3),accuracy:+(correct/n*100).toFixed(1),sensitivity:+(tp/(tp+fn+1e-10)*100).toFixed(1),specificity:+(tn/(tn+fp+1e-10)*100).toFixed(1),ppv:+(tp/(tp+fp+1e-10)*100).toFixed(1),mcFaddenR2:+(ll0!==0?1-ll1/ll0:NaN).toFixed(4),n,tp,tn,fp,fn}}
 

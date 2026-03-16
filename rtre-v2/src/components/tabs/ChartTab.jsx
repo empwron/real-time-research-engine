@@ -3,7 +3,7 @@ import { AreaChart, Area, BarChart, Bar, ScatterChart, Scatter, LineChart, Line,
 import { Btn, Pill } from '../ui/index.jsx'
 import { C, CHART_COLORS } from '../../theme.js'
 import { isNumType } from './InputTab.jsx'
-import { descriptive, freqTable, pearsonR, spearmanR, welchTTest, mannWhitneyU, linearRegression, logisticRegression, multiLogisticRegression, oneWayAnova, chiSquareTest, clean, isNormal, shapiroWilk, leveneTest } from '../../utils/statistics.js'
+import { descriptive, freqTable, pearsonR, spearmanR, welchTTest, mannWhitneyU, pairedTTest, wilcoxonSignedRank, linearRegression, logisticRegression, multiLogisticRegression, oneWayAnova, chiSquareTest, clean, isNormal, shapiroWilk, leveneTest } from '../../utils/statistics.js'
 import { suggestModels } from '../../utils/modelAdvisor.js'
 import { exportStatsCSV } from '../../utils/export.js'
 
@@ -25,6 +25,7 @@ export function ChartTab({project,advisorModel,onAdvisorSelect}){
   // Model mode: tracks which analysis type to run
   const[modelMode,setModelMode]=useState('auto') // 'auto'|'logistic'|'linear'|'ttest'|'anova'|'chisq'|'corr'|'descriptive'
   const[chiVar1,setChiVar1]=useState('');const[chiVar2,setChiVar2]=useState('')
+  const[isPaired,setIsPaired]=useState(false)
   // Binning/grouping config: {varId: {breaks:[30,60], labels:['<30','30-60','>60']}}
   const[binCfg,setBinCfg]=useState({})
   const[binEditor,setBinEditor]=useState(null) // varId being edited
@@ -127,8 +128,27 @@ export function ChartTab({project,advisorModel,onAdvisorSelect}){
   },[nv,cv,bv,project.rows])
 
   const mr=useMemo(()=>{if(!depV||(miv.size===0&&!mgv))return null;const il=cnv.filter(v=>miv.has(v.id)&&v.id!==depV.id)
-    // Group comparison
-    if(mgv){const gv=cv.find(v=>v.id===mgv);if(gv){const groups=[...new Set(project.rows.map(r=>r[gv.id]).filter(Boolean))];if(groups.length===2){const g1=project.rows.filter(r=>r[gv.id]===groups[0]).map(r=>r[depV.id]),g2=project.rows.filter(r=>r[gv.id]===groups[1]).map(r=>r[depV.id]);const n2=isNormal(g1)&&isNormal(g2)&&g1.length>=20&&g2.length>=20;const res=n2?welchTTest(g1,g2):mannWhitneyU(g1,g2);return res?{type:n2?'ttest':'mw',result:res,groups}:null}if(groups.length>=3){const gd=groups.map(g=>project.rows.filter(r=>r[gv.id]===g).map(r=>r[depV.id]));const res=oneWayAnova(gd);return res?{type:'anova',result:res}:null}}}
+    // Group comparison — search in BOTH cv and bv for grouping var
+    const allGrp=[...cv,...bv]
+    if(mgv){const gv=allGrp.find(v=>v.id===mgv);if(gv){const groups=[...new Set(project.rows.map(r=>r[gv.id]).filter(x=>x!=null&&x!==''&&x!=='__NA__'))]
+      if(groups.length===2){
+        const g1=clean(project.rows.filter(r=>r[gv.id]===groups[0]).map(r=>r[depV.id]))
+        const g2=clean(project.rows.filter(r=>r[gv.id]===groups[1]).map(r=>r[depV.id]))
+        if(g1.length>=2&&g2.length>=2){
+          // Paired tests
+          if(isPaired&&g1.length===g2.length){
+            const bothN=g1.length>=8&&isNormal(g1.map((v,i)=>v-g2[i]))
+            const res=bothN?pairedTTest(g1,g2):wilcoxonSignedRank(g1,g2)
+            return res?{type:bothN?'pairedT':'wilcoxon',result:res,groups}:null
+          }
+          // Independent tests
+          const bothN=isNormal(g1)&&isNormal(g2)&&g1.length>=8&&g2.length>=8
+          const res=bothN?welchTTest(g1,g2):mannWhitneyU(g1,g2)
+          return res?{type:bothN?'ttest':'mw',result:res,groups}:null
+        }
+      }
+      if(groups.length>=3){const gd=groups.map(g=>clean(project.rows.filter(r=>r[gv.id]===g).map(r=>r[depV.id])));const res=oneWayAnova(gd);return res?{type:'anova',result:res}:null}
+    }}
     if(!il.length)return null
     if(depV.type==='binary'){
       const xArrays=il.map(v=>project.rows.map(r=>r[v.id]));const yA=project.rows.map(r=>r[depV.id])
@@ -136,7 +156,7 @@ export function ChartTab({project,advisorModel,onAdvisorSelect}){
     }
     const xv=il[0];const res=linearRegression(project.rows.map(r=>r[xv.id]),project.rows.map(r=>r[depV.id]))
     return res?{type:'linear',result:res,xVars:[xv]}:null
-  },[depV,miv,mgv,project.rows,cnv,cv])
+  },[depV,miv,mgv,isPaired,project.rows,cnv,cv,bv])
 
   // ─── Helpers ────
   const groupedStats=(gv,yv)=>{
@@ -493,17 +513,27 @@ export function ChartTab({project,advisorModel,onAdvisorSelect}){
     {(mm==='auto'||mm==='logistic'||mm==='linear'||mm==='ttest'||mm==='anova')&&<div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:8}}>
         <div><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>Y (outcome)</label><select value={mdv} onChange={e=>{setMdv(e.target.value);setPredValues({})}} style={{fontSize:11}}><option value="">—</option>{aov.map(v=><option key={v.id} value={v.id}>{v.name} [{v.type}]</option>)}</select></div>
-        <div><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>Nhóm</label><select value={mgv} onChange={e=>setMgv(e.target.value)} style={{fontSize:11}}><option value="">—</option>{cv.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></div>
+        <div><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>Nhóm (cat/binary)</label><select value={mgv} onChange={e=>setMgv(e.target.value)} style={{fontSize:11}}><option value="">—</option>{[...cv,...bv].map(v=><option key={v.id} value={v.id}>{v.name} [{v.type}]</option>)}</select></div>
       </div>
+      {/* Paired toggle — only show when group is selected */}
+      {mgv&&<div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+        <span onClick={()=>setIsPaired(p=>!p)} style={{padding:'2px 8px',borderRadius:3,fontSize:9,cursor:'pointer',
+          background:isPaired?'rgba(255,45,120,.15)':'rgba(255,255,255,.04)',border:`1px solid ${isPaired?C.pink:'rgba(255,255,255,.08)'}`,color:isPaired?C.pink:'rgba(200,230,200,.3)'}}>
+          {isPaired?'⚡ Paired (ghép cặp)':'◇ Independent (độc lập)'}
+        </span>
+        <span style={{fontSize:8,color:'rgba(200,230,200,.25)'}}>{isPaired?'Cùng bệnh nhân trước/sau':'2 nhóm riêng biệt'}</span>
+      </div>}
       <div style={{marginBottom:8}}><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>X (chọn nhiều = đa biến)</label><div style={{display:'flex',flexWrap:'wrap',gap:3}}>{cnv.filter(v=>v.id!==mdv).map(v=><span key={v.id} onClick={()=>{setMiv(p=>{const n2=new Set(p);n2.has(v.id)?n2.delete(v.id):n2.add(v.id);return n2});setPredValues({})}} style={{padding:'2px 7px',borderRadius:3,fontSize:9,cursor:'pointer',background:miv.has(v.id)?'rgba(255,107,53,.18)':'rgba(255,255,255,.04)',border:`1px solid ${miv.has(v.id)?C.orange:'rgba(255,255,255,.08)'}`,color:miv.has(v.id)?C.orange:'rgba(200,230,200,.4)'}}>{v.name}<span style={{fontSize:7,marginLeft:2,opacity:.5}}>{v.type==='binary'?'0/1':v.type==='number'?'#':v.type==='integer'?'Z':''}</span></span>)}</div></div>
       {mr?<div style={{padding:8,background:'rgba(255,107,53,.04)',border:`1px solid ${C.orange}30`,borderRadius:5,marginBottom:8}}>
-        <div style={{fontFamily:'Orbitron',fontSize:8,color:C.orange,letterSpacing:'2px',marginBottom:6}}>◎ {(mr.type==='multiLogistic'||mr.type==='logistic')?`LOGISTIC (${mr.result.k} biến)`:mr.type==='linear'?'LINEAR':mr.type==='ttest'?"T-TEST":mr.type==='mw'?'MANN-WHITNEY':'ANOVA'}</div>
+        <div style={{fontFamily:'Orbitron',fontSize:8,color:C.orange,letterSpacing:'2px',marginBottom:6}}>◎ {(mr.type==='multiLogistic'||mr.type==='logistic')?`LOGISTIC (${mr.result.k} biến)`:mr.type==='linear'?'LINEAR':mr.type==='ttest'?"WELCH'S T-TEST (independent)":mr.type==='pairedT'?'PAIRED T-TEST (ghép cặp)':mr.type==='wilcoxon'?'WILCOXON SIGNED-RANK (ghép cặp)':mr.type==='mw'?'MANN-WHITNEY U (independent)':'ONE-WAY ANOVA'}</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(90px,1fr))',gap:4}}>
           {(mr.type==='multiLogistic'||mr.type==='logistic')&&<><Pill label="ACC" value={`${mr.result.accuracy}%`} color={C.green}/><Pill label="SENS" value={`${mr.result.sensitivity}%`} color={C.blue}/><Pill label="SPEC" value={`${mr.result.specificity}%`} color={C.purple}/><Pill label="PPV" value={`${mr.result.ppv}%`} color={C.cyan}/><Pill label="NPV" value={`${mr.result.npv}%`} color={C.gold}/><Pill label="McFadden" value={mr.result.mcFaddenR2} color={C.orange}/><Pill label="N" value={mr.result.n}/></>}
           {mr.type==='linear'&&<><Pill label="β" value={mr.result.slope} color={C.blue}/><Pill label="R²" value={mr.result.r2} color={C.green}/><Pill label="RMSE" value={mr.result.rmse} color={C.orange}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/></>}
-          {mr.type==='ttest'&&<><Pill label="T" value={mr.result.t} color={C.pink}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/><Pill label="Cohen d" value={mr.result.cohend} color={C.gold}/></>}
-          {mr.type==='mw'&&<><Pill label="U" value={mr.result.U} color={C.pink}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/></>}
-          {mr.type==='anova'&&<><Pill label="F" value={mr.result.F} color={C.orange}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/><Pill label="η²" value={mr.result.eta2} color={C.gold}/></>}
+          {mr.type==='ttest'&&<><Pill label="T" value={mr.result.t} color={C.pink}/><Pill label="df" value={mr.result.df}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/><Pill label="M₁" value={mr.result.mean1}/><Pill label="M₂" value={mr.result.mean2}/><Pill label="Cohen d" value={mr.result.cohend} color={C.gold}/></>}
+          {mr.type==='pairedT'&&<><Pill label="T" value={mr.result.t} color={C.pink}/><Pill label="df" value={mr.result.df}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/><Pill label="Mean Diff" value={mr.result.meanDiff} color={C.blue}/><Pill label="SD Diff" value={mr.result.sdDiff}/><Pill label="Cohen d" value={mr.result.cohend} color={C.gold}/><Pill label="N cặp" value={mr.result.n}/></>}
+          {mr.type==='wilcoxon'&&<><Pill label="W" value={mr.result.W} color={C.pink}/><Pill label="z" value={mr.result.z}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/><Pill label="r effect" value={mr.result.rEffect} color={C.gold}/><Pill label="N cặp" value={mr.result.nPairs}/></>}
+          {mr.type==='mw'&&<><Pill label="U" value={mr.result.U} color={C.pink}/><Pill label="z" value={mr.result.z}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/><Pill label="r" value={mr.result.rbc} color={C.gold}/><Pill label="N₁" value={mr.result.n1}/><Pill label="N₂" value={mr.result.n2}/></>}
+          {mr.type==='anova'&&<><Pill label="F" value={mr.result.F} color={C.orange}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/><Pill label="η²" value={mr.result.eta2} color={C.gold}/><Pill label="N" value={mr.result.n}/><Pill label="Nhóm" value={mr.result.nGroups}/></>}
         </div>
         {(mr.type==='multiLogistic'||mr.type==='logistic')&&mr.xVars&&<div style={{marginTop:8,borderTop:'1px solid rgba(255,255,255,.06)',paddingTop:6}}>
           <div style={{fontFamily:'Orbitron',fontSize:7,color:'rgba(200,230,200,.3)',letterSpacing:'1px',marginBottom:4}}>COEFFICIENTS</div>
