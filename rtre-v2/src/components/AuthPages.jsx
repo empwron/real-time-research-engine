@@ -22,27 +22,29 @@ const Field = ({ label, value, onChange, type='text', placeholder='', hint='' })
 
 function AuthWrap({ children }) {
   return (
-    <div style={{ minHeight:'100vh', background:'#07070F', display:'flex',
-      alignItems:'center', justifyContent:'center', position:'relative',
-      overflow:'auto', padding:'24px 16px' }}>
+    <div style={{ position:'fixed', inset:0, background:'#07070F',
+      overflowY:'auto', overflowX:'hidden', zIndex:100 }}>
       <div style={{ position:'fixed', inset:0,
         backgroundImage:'linear-gradient(rgba(0,250,154,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(0,250,154,.035) 1px,transparent 1px)',
         backgroundSize:'60px 60px', pointerEvents:'none' }}/>
       <div style={{ position:'fixed', inset:0,
         background:'radial-gradient(ellipse at 50% 25%,rgba(0,250,154,.08) 0%,transparent 60%)',
         pointerEvents:'none' }}/>
-      <div className="fade-in" style={{ width:420, maxWidth:'100%', position:'relative', zIndex:10 }}>
-        <div style={{ textAlign:'center', marginBottom:28 }}>
-          <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:10,
-            color:C.green, letterSpacing:'7px', opacity:.35, marginBottom:8 }}>REALTIME</div>
-          <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:24, fontWeight:700,
-            color:'#fff', letterSpacing:'3px', textShadow:`0 0 32px ${C.green}38` }}>
-            RESEARCH ENGINE
+      <div style={{ minHeight:'100%', display:'flex', alignItems:'center',
+        justifyContent:'center', padding:'24px 16px', position:'relative' }}>
+        <div className="fade-in" style={{ width:420, maxWidth:'100%', position:'relative', zIndex:10 }}>
+          <div style={{ textAlign:'center', marginBottom:28 }}>
+            <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:10,
+              color:C.green, letterSpacing:'7px', opacity:.35, marginBottom:8 }}>REALTIME</div>
+            <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:24, fontWeight:700,
+              color:'#fff', letterSpacing:'3px', textShadow:`0 0 32px ${C.green}38` }}>
+              RESEARCH ENGINE
+            </div>
+            <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:8,
+              color:C.green, letterSpacing:'9px', marginTop:8, opacity:.2 }}>v2.5 CLINICAL</div>
           </div>
-          <div style={{ fontFamily:'Orbitron,sans-serif', fontSize:8,
-            color:C.green, letterSpacing:'9px', marginTop:8, opacity:.2 }}>v2.5 CLINICAL</div>
+          {children}
         </div>
-        {children}
       </div>
     </div>
   )
