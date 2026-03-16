@@ -152,6 +152,30 @@ export const multiLogisticRegression=(xArrays,yArr,epochs=3000,lr=0.03)=>{
   }
 }
 export const oneWayAnova=(groups)=>{const cl=groups.map(g=>clean(g)).filter(g=>g.length>=2);if(cl.length<2)return null;const allN=cl.reduce((s,g)=>s+g.length,0),gm=cl.flat().reduce((s,v)=>s+v,0)/allN;let ssB=0,ssW=0;cl.forEach(g=>{const gM=g.reduce((s,v)=>s+v,0)/g.length;ssB+=g.length*(gM-gm)**2;g.forEach(v=>{ssW+=(v-gM)**2})});const dfB=cl.length-1,dfW=allN-cl.length,msB=ssB/dfB,msW=ssW/dfW,F=msW>0?msB/msW:NaN,p=1-fCDF(F,dfB,dfW),eta2=ssB/(ssB+ssW);return{F:+F.toFixed(4),dfBetween:dfB,dfWithin:dfW,p:+p.toFixed(4),eta2:+eta2.toFixed(4),n:allN,nGroups:cl.length,significant:p<.05,interpretation:p<.001?'p < 0.001 (***)':p<.01?`p = ${p.toFixed(3)} (**)`:p<.05?`p = ${p.toFixed(3)} (*)`:`p = ${p.toFixed(3)} (ns)`}}
+export const chiSquareTest=(var1Arr,var2Arr)=>{
+  const pairs=var1Arr.map((v,i)=>[v,var2Arr[i]]).filter(([a,b])=>a!=null&&a!==''&&!isNA(a)&&b!=null&&b!==''&&!isNA(b))
+  if(pairs.length<5)return null
+  const vals1=[...new Set(pairs.map(p=>String(p[0])))],vals2=[...new Set(pairs.map(p=>String(p[1])))]
+  if(vals1.length<2||vals2.length<2)return null
+  const obs={};vals1.forEach(v1=>{obs[v1]={};vals2.forEach(v2=>{obs[v1][v2]=0})})
+  pairs.forEach(([a,b])=>{obs[String(a)][String(b)]=(obs[String(a)]?.[String(b)]||0)+1})
+  const n=pairs.length,rowT={},colT={}
+  vals1.forEach(v1=>{rowT[v1]=vals2.reduce((s,v2)=>s+(obs[v1][v2]||0),0)})
+  vals2.forEach(v2=>{colT[v2]=vals1.reduce((s,v1)=>s+(obs[v1][v2]||0),0)})
+  let chi2=0,minExp=Infinity
+  const table=[]
+  vals1.forEach(v1=>{const row={label:v1};vals2.forEach(v2=>{const exp=rowT[v1]*colT[v2]/n;if(exp<minExp)minExp=exp;if(exp>0)chi2+=(obs[v1][v2]-exp)**2/exp;row[v2]={obs:obs[v1][v2],exp:+exp.toFixed(1)}});table.push(row)})
+  const df=(vals1.length-1)*(vals2.length-1)
+  // p-value from chi-square distribution
+  const p=df>0?1-gammaCDF(chi2/2,df/2):1
+  const cramersV=Math.sqrt(chi2/(n*Math.min(vals1.length-1,vals2.length-1)))
+  return{chi2:+chi2.toFixed(4),df,p:+p.toFixed(4),n,cramersV:+cramersV.toFixed(4),minExpected:+minExp.toFixed(1),
+    significant:p<.05,table,rows:vals1,cols:vals2,
+    interpretation:p<.001?'p < 0.001 (***)':p<.01?`p = ${p.toFixed(3)} (**)`:p<.05?`p = ${p.toFixed(3)} (*)`:`p = ${p.toFixed(3)} (ns)`,
+    warning:minExp<5?'⚠ Expected count < 5 → cân nhắc Fisher exact test':null}
+}
+function gammaCDF(x,a){if(x<=0)return 0;if(x>=a+10*Math.sqrt(a)+50)return 1;let sum=1/a,term=1/a;for(let n2=1;n2<200;n2++){term*=x/(a+n2);sum+=term;if(Math.abs(term)<1e-10)break}return Math.min(1,sum*Math.exp(-x+a*Math.log(x)-lgamma(a)))}
+
 export const freqTable=arr=>{const counts={};arr.forEach(v=>{if(!isNA(v))counts[v]=(counts[v]||0)+1});const total=Object.values(counts).reduce((s,v)=>s+v,0);return Object.entries(counts).map(([k,n])=>({value:k,n,pct:+(n/total*100).toFixed(1)})).sort((a,b)=>b.n-a.n)}
 
 // Math helpers
