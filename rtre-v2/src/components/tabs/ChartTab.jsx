@@ -89,13 +89,13 @@ export function ChartTab({project,advisorModel,onAdvisorSelect}){
 
   useEffect(()=>{if(selVars.size===0&&cnv.length>=1)setSV(new Set(cnv.slice(0,Math.min(3,cnv.length)).map(v=>v.id)))},[cnv])
 
-  useEffect(()=>{if(!advisorModel)return;setTab('model');const m=advisorModel
-    if(/logistic/i.test(m)&&bv.length>0){setModelMode('logistic');setMdv(bv[0].id);setMiv(new Set(nv.slice(0,3).map(v=>v.id)))}
+  useEffect(()=>{if(!advisorModel)return;setTab('model');const m=advisorModel;const allGrp=[...cv,...bv]
+    if(/logistic/i.test(m)&&bv.length>0&&nv.length>=1){setModelMode('logistic');setMdv(bv[0].id);setMiv(new Set(nv.slice(0,3).map(v=>v.id)))}
     else if(/linear|ols/i.test(m)&&nv.length>=2){setModelMode('linear');setMdv(nv[0].id);setMiv(new Set(nv.slice(1,4).map(v=>v.id)))}
-    else if(/t-test|mann|welch/i.test(m)&&nv.length>0&&cv.length>0){setModelMode('ttest');setMdv(nv[0].id);setMgv(cv[0].id)}
-    else if(/anova|kruskal/i.test(m)&&nv.length>0&&cv.length>0){setModelMode('anova');setMdv(nv[0].id);setMgv(cv[0].id)}
-    else if(/chi|fisher/i.test(m)){setModelMode('chisq');const cats=[...cv,...bv];if(cats.length>=2){setChiVar1(cats[0].id);setChiVar2(cats[1].id)}else if(cats.length===1&&bv.length>0){setChiVar1(cats[0].id);setChiVar2(bv[0].id)}}
-    else if(/pearson|spearman|corr/i.test(m)){setModelMode('corr');if(nv.length>=2){setMiv(new Set(nv.slice(0,5).map(v=>v.id)))}}
+    else if(/t-test|mann|welch/i.test(m)&&nv.length>0){const g2=allGrp.find(v=>{const gs=[...new Set(project.rows.map(r=>r[v.id]).filter(x=>x!=null&&x!==''&&x!=='__NA__'))];return gs.length===2});if(g2){setModelMode('ttest');setMdv(nv[0].id);setMgv(g2.id)}}
+    else if(/anova|kruskal/i.test(m)&&nv.length>0){const g3=cv.find(v=>{const gs=[...new Set(project.rows.map(r=>r[v.id]).filter(x=>x!=null&&x!==''&&x!=='__NA__'))];return gs.length>=3});if(g3){setModelMode('anova');setMdv(nv[0].id);setMgv(g3.id)}}
+    else if(/chi|fisher/i.test(m)&&allGrp.length>=2){setModelMode('chisq');setChiVar1(allGrp[0].id);setChiVar2(allGrp[1].id)}
+    else if(/pearson|spearman|corr/i.test(m)&&nv.length>=2){setModelMode('corr');setMiv(new Set(nv.slice(0,5).map(v=>v.id)))}
     else if(/descriptive/i.test(m)){setModelMode('descriptive')}
     else{setModelMode('auto')}
     onAdvisorSelect(null)},[advisorModel])
@@ -107,18 +107,33 @@ export function ChartTab({project,advisorModel,onAdvisorSelect}){
 
   // Model computation (unchanged)
   const aov=useMemo(()=>[...bv,...nv],[bv,nv]);const depV=useMemo(()=>aov.find(v=>v.id===mdv),[aov,mdv])
+  // ─── Eligibility: which modes CAN run with current data ────
+  const eligibility=useMemo(()=>{
+    const N=project.rows.length
+    const catGroups={};cv.forEach(v=>{catGroups[v.id]=[...new Set(project.rows.map(r=>r[v.id]).filter(x=>x!=null&&x!==''&&x!=='__NA__'))].length})
+    const hasBin=bv.length>0, hasNum=nv.length>0
+    const has2Group=cv.some(v=>catGroups[v.id]===2)||hasBin // binary = 2 groups
+    const has3Group=cv.some(v=>catGroups[v.id]>=3)
+    return{
+      auto:true,
+      logistic:hasBin&&hasNum&&N>=10,
+      linear:nv.length>=2&&N>=3,
+      ttest:hasNum&&has2Group&&N>=4,
+      anova:hasNum&&has3Group&&N>=6,
+      chisq:(cv.length+bv.length)>=2&&N>=5,
+      corr:nv.length>=2&&N>=3,
+      descriptive:N>=1,
+    }
+  },[nv,cv,bv,project.rows])
+
   const mr=useMemo(()=>{if(!depV||(miv.size===0&&!mgv))return null;const il=cnv.filter(v=>miv.has(v.id)&&v.id!==depV.id)
     // Group comparison
     if(mgv){const gv=cv.find(v=>v.id===mgv);if(gv){const groups=[...new Set(project.rows.map(r=>r[gv.id]).filter(Boolean))];if(groups.length===2){const g1=project.rows.filter(r=>r[gv.id]===groups[0]).map(r=>r[depV.id]),g2=project.rows.filter(r=>r[gv.id]===groups[1]).map(r=>r[depV.id]);const n2=isNormal(g1)&&isNormal(g2)&&g1.length>=20&&g2.length>=20;const res=n2?welchTTest(g1,g2):mannWhitneyU(g1,g2);return res?{type:n2?'ttest':'mw',result:res,groups}:null}if(groups.length>=3){const gd=groups.map(g=>project.rows.filter(r=>r[gv.id]===g).map(r=>r[depV.id]));const res=oneWayAnova(gd);return res?{type:'anova',result:res}:null}}}
     if(!il.length)return null
-    // Binary outcome → logistic (always multivariable, even k=1)
     if(depV.type==='binary'){
-      const xArrays=il.map(v=>project.rows.map(r=>r[v.id]))
-      const yA=project.rows.map(r=>r[depV.id])
-      const res=multiLogisticRegression(xArrays,yA)
-      return res?{type:il.length>=2?'multiLogistic':'logistic',result:res,xVars:il}:null
+      const xArrays=il.map(v=>project.rows.map(r=>r[v.id]));const yA=project.rows.map(r=>r[depV.id])
+      const res=multiLogisticRegression(xArrays,yA);return res?{type:'logistic',result:res,xVars:il}:null
     }
-    // Continuous outcome → linear
     const xv=il[0];const res=linearRegression(project.rows.map(r=>r[xv.id]),project.rows.map(r=>r[depV.id]))
     return res?{type:'linear',result:res,xVars:[xv]}:null
   },[depV,miv,mgv,project.rows,cnv,cv])
@@ -399,9 +414,11 @@ export function ChartTab({project,advisorModel,onAdvisorSelect}){
     return<div style={{overflow:'auto',flex:1,padding:4}}>
     {/* Mode selector */}
     <div style={{display:'flex',gap:3,marginBottom:8,flexWrap:'wrap'}}>
-      {[['auto','Auto'],['logistic','Logistic'],['linear','Linear'],['ttest','T-test'],['anova','ANOVA'],['chisq','Chi²'],['corr','Corr'],['descriptive','Mô tả']].map(([k,l])=>
-        <span key={k} onClick={()=>setModelMode(k)} style={{padding:'2px 8px',borderRadius:3,fontSize:8,cursor:'pointer',fontFamily:'Orbitron',letterSpacing:'.5px',
-          background:mm===k?'rgba(255,107,53,.15)':'rgba(255,255,255,.04)',border:`1px solid ${mm===k?C.orange:'rgba(255,255,255,.06)'}`,color:mm===k?C.orange:'rgba(200,230,200,.3)'}}>{l}</span>)}
+      {[['auto','Auto'],['logistic','Logistic'],['linear','Linear'],['ttest','T-test'],['anova','ANOVA'],['chisq','Chi²'],['corr','Corr'],['descriptive','Mô tả']].map(([k,l])=>{
+        const ok=eligibility[k]
+        return<span key={k} onClick={()=>{if(ok)setModelMode(k)}} style={{padding:'2px 8px',borderRadius:3,fontSize:8,fontFamily:'Orbitron',letterSpacing:'.5px',
+          cursor:ok?'pointer':'not-allowed',opacity:ok?1:.35,
+          background:mm===k&&ok?'rgba(255,107,53,.15)':'rgba(255,255,255,.04)',border:`1px solid ${mm===k&&ok?C.orange:'rgba(255,255,255,.06)'}`,color:mm===k&&ok?C.orange:'rgba(200,230,200,.3)'}}>{l}</span>})}
     </div>
 
     {/* ═══ CHI-SQUARE ═══ */}
@@ -478,7 +495,7 @@ export function ChartTab({project,advisorModel,onAdvisorSelect}){
         <div><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>Y (outcome)</label><select value={mdv} onChange={e=>{setMdv(e.target.value);setPredValues({})}} style={{fontSize:11}}><option value="">—</option>{aov.map(v=><option key={v.id} value={v.id}>{v.name} [{v.type}]</option>)}</select></div>
         <div><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>Nhóm</label><select value={mgv} onChange={e=>setMgv(e.target.value)} style={{fontSize:11}}><option value="">—</option>{cv.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></div>
       </div>
-      <div style={{marginBottom:8}}><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>X (chọn nhiều = đa biến)</label><div style={{display:'flex',flexWrap:'wrap',gap:3}}>{cnv.filter(v=>v.id!==mdv).map(v=><span key={v.id} onClick={()=>{setMiv(p=>{const n2=new Set(p);n2.has(v.id)?n2.delete(v.id):n2.add(v.id);return n2});setPredValues({})}} style={{padding:'2px 7px',borderRadius:3,fontSize:9,cursor:'pointer',background:miv.has(v.id)?'rgba(255,107,53,.18)':'rgba(255,255,255,.04)',border:`1px solid ${miv.has(v.id)?C.orange:'rgba(255,255,255,.08)'}`,color:miv.has(v.id)?C.orange:'rgba(200,230,200,.4)'}}>{v.name}</span>)}</div></div>
+      <div style={{marginBottom:8}}><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>X (chọn nhiều = đa biến)</label><div style={{display:'flex',flexWrap:'wrap',gap:3}}>{cnv.filter(v=>v.id!==mdv).map(v=><span key={v.id} onClick={()=>{setMiv(p=>{const n2=new Set(p);n2.has(v.id)?n2.delete(v.id):n2.add(v.id);return n2});setPredValues({})}} style={{padding:'2px 7px',borderRadius:3,fontSize:9,cursor:'pointer',background:miv.has(v.id)?'rgba(255,107,53,.18)':'rgba(255,255,255,.04)',border:`1px solid ${miv.has(v.id)?C.orange:'rgba(255,255,255,.08)'}`,color:miv.has(v.id)?C.orange:'rgba(200,230,200,.4)'}}>{v.name}<span style={{fontSize:7,marginLeft:2,opacity:.5}}>{v.type==='binary'?'0/1':v.type==='number'?'#':v.type==='integer'?'Z':''}</span></span>)}</div></div>
       {mr?<div style={{padding:8,background:'rgba(255,107,53,.04)',border:`1px solid ${C.orange}30`,borderRadius:5,marginBottom:8}}>
         <div style={{fontFamily:'Orbitron',fontSize:8,color:C.orange,letterSpacing:'2px',marginBottom:6}}>◎ {(mr.type==='multiLogistic'||mr.type==='logistic')?`LOGISTIC (${mr.result.k} biến)`:mr.type==='linear'?'LINEAR':mr.type==='ttest'?"T-TEST":mr.type==='mw'?'MANN-WHITNEY':'ANOVA'}</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(90px,1fr))',gap:4}}>
@@ -490,16 +507,30 @@ export function ChartTab({project,advisorModel,onAdvisorSelect}){
         </div>
         {(mr.type==='multiLogistic'||mr.type==='logistic')&&mr.xVars&&<div style={{marginTop:8,borderTop:'1px solid rgba(255,255,255,.06)',paddingTop:6}}>
           <div style={{fontFamily:'Orbitron',fontSize:7,color:'rgba(200,230,200,.3)',letterSpacing:'1px',marginBottom:4}}>COEFFICIENTS</div>
-          <table style={{width:'100%',fontSize:10,borderCollapse:'collapse'}}><thead><tr style={{borderBottom:'1px solid rgba(255,107,53,.15)'}}><th style={{textAlign:'left',padding:'3px 6px',color:C.orange,fontSize:9}}>Biến</th><th style={{textAlign:'right',padding:'3px 6px',color:'rgba(200,230,200,.4)',fontSize:9}}>β</th><th style={{textAlign:'right',padding:'3px 6px',color:'rgba(200,230,200,.4)',fontSize:9}}>OR</th></tr></thead>
-            <tbody>{mr.xVars.map((xv,xi)=>{const c=mr.result.coefficients[xi];return<tr key={xv.id} style={{borderBottom:'1px solid rgba(255,255,255,.03)'}}><td style={{padding:'3px 6px',color:'rgba(200,230,200,.6)'}}>{xv.name}</td><td style={{padding:'3px 6px',textAlign:'right',color:c.coef>0?C.green:C.pink}}>{c.coef}</td><td style={{padding:'3px 6px',textAlign:'right',color:C.orange,fontWeight:600}}>{c.or}</td></tr>})}</tbody></table>
+          <table style={{width:'100%',fontSize:10,borderCollapse:'collapse'}}><thead><tr style={{borderBottom:'1px solid rgba(255,107,53,.15)'}}><th style={{textAlign:'left',padding:'3px 6px',color:C.orange,fontSize:9}}>Biến</th><th style={{textAlign:'left',padding:'3px 6px',color:'rgba(200,230,200,.3)',fontSize:8}}>Type</th><th style={{textAlign:'right',padding:'3px 6px',color:'rgba(200,230,200,.4)',fontSize:9}}>β</th><th style={{textAlign:'right',padding:'3px 6px',color:'rgba(200,230,200,.4)',fontSize:9}}>OR</th></tr></thead>
+            <tbody>{mr.xVars.map((xv,xi)=>{const c=mr.result.coefficients[xi];return<tr key={xv.id} style={{borderBottom:'1px solid rgba(255,255,255,.03)'}}><td style={{padding:'3px 6px',color:'rgba(200,230,200,.6)'}}>{xv.name}</td><td style={{padding:'3px 6px',fontSize:8,color:xv.type==='binary'?C.pink:xv.type==='categorical'?C.purple:C.cyan}}>{xv.type}</td><td style={{padding:'3px 6px',textAlign:'right',color:c.coef>0?C.green:C.pink}}>{c.coef}</td><td style={{padding:'3px 6px',textAlign:'right',color:C.orange,fontWeight:600}}>{c.or}</td></tr>})}</tbody></table>
         </div>}
       </div>:<div style={{padding:14,color:'rgba(200,230,200,.2)',fontSize:11,textAlign:'center'}}>{mdv?'Chọn X':'Chọn Y và X'}</div>}
       {/* Prediction calculator */}
       {mr&&(mr.type==='multiLogistic'||mr.type==='logistic')&&mr.result.predict&&<div style={{padding:10,background:'rgba(0,250,154,.04)',border:`1px solid ${C.green}30`,borderRadius:5,marginTop:4}}>
         <div style={{fontFamily:'Orbitron',fontSize:8,color:C.green,letterSpacing:'2px',marginBottom:8}}>🔮 DỰ ĐOÁN MẪU MỚI</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',gap:6,marginBottom:8}}>
-          {mr.xVars.map(xv=><div key={xv.id}><label style={{fontSize:9,color:'rgba(200,230,200,.5)',display:'block',marginBottom:2}}>{xv.name}</label>
-            <input type="number" value={predValues[xv.id]||''} onChange={e=>setPredValues(p=>({...p,[xv.id]:e.target.value}))} placeholder={`vd: ${descriptive(project.rows.map(r=>r[xv.id]))?.mean||0}`} style={{fontSize:11,padding:'4px 8px'}}/></div>)}
+          {mr.xVars.map(xv=>{
+            const isBin=xv.type==='binary'
+            const isCat=xv.type==='categorical'
+            return<div key={xv.id}>
+              <label style={{fontSize:9,color:'rgba(200,230,200,.5)',display:'block',marginBottom:2}}>{xv.name} <span style={{fontSize:7,color:'rgba(200,230,200,.2)'}}>({xv.type})</span></label>
+              {isBin?<select value={predValues[xv.id]??''} onChange={e=>setPredValues(p=>({...p,[xv.id]:e.target.value}))} style={{fontSize:11,padding:'4px 8px'}}>
+                <option value="">— Chọn —</option><option value="0">0 — Không</option><option value="1">1 — Có</option>
+              </select>
+              :isCat?<select value={predValues[xv.id]??''} onChange={e=>setPredValues(p=>({...p,[xv.id]:e.target.value}))} style={{fontSize:11,padding:'4px 8px'}}>
+                <option value="">— Chọn —</option>
+                {[...new Set(project.rows.map(r=>r[xv.id]).filter(x=>x!=null&&x!==''&&x!=='__NA__'))].map(val=><option key={val} value={val}>{val}</option>)}
+              </select>
+              :<input type="number" value={predValues[xv.id]||''} onChange={e=>setPredValues(p=>({...p,[xv.id]:e.target.value}))}
+                placeholder={`vd: ${descriptive(project.rows.map(r=>r[xv.id]))?.median||0}`}
+                style={{fontSize:11,padding:'4px 8px'}}/>}
+            </div>})}
         </div>
         {(()=>{const allFilled=mr.xVars.every(xv=>predValues[xv.id]!==undefined&&predValues[xv.id]!=='');if(!allFilled)return<div style={{fontSize:10,color:'rgba(200,230,200,.25)'}}>Nhập tất cả biến để dự đoán</div>;const vals=mr.xVars.map(xv=>Number(predValues[xv.id]));if(vals.some(isNaN))return<div style={{fontSize:10,color:C.pink}}>Giá trị không hợp lệ</div>;const prob=mr.result.predict(vals),pct=+(prob*100).toFixed(1)
           return<div style={{textAlign:'center',padding:10}}><div style={{fontSize:10,color:'rgba(200,230,200,.5)',marginBottom:4}}>Xác suất {depV?.name}:</div><div style={{fontFamily:'Orbitron',fontSize:28,fontWeight:700,color:pct>=50?C.pink:C.green,textShadow:`0 0 20px ${pct>=50?C.pink:C.green}40`}}>{pct}%</div><div style={{fontSize:10,color:pct>=50?C.pink:C.green,marginTop:4}}>{pct>=50?'⚠ Nguy cơ CAO':'✓ Nguy cơ THẤP'}</div></div>})()}
