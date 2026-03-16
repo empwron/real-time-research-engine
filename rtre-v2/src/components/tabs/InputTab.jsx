@@ -3,171 +3,36 @@ import { ref, push, update, remove } from 'firebase/database'
 import { db } from '../../firebase.js'
 import { Btn, HoloPanel } from '../ui/index.jsx'
 import { C } from '../../theme.js'
-
-export const VAR_TYPES = [
-  { value:'number',label:'Số liên tục' },{ value:'integer',label:'Số nguyên' },
-  { value:'percent',label:'Phần trăm (%)' },{ value:'binary',label:'Nhị phân 0/1' },
-  { value:'ordinal',label:'Thứ hạng' },{ value:'categorical',label:'Phân loại' },
-  { value:'string',label:'Văn bản' },{ value:'id',label:'Mã / ID' },
-  { value:'name',label:'Tên đối tượng' },{ value:'date',label:'Ngày tháng' },
-  { value:'image',label:'Hình ảnh (clipboard)' },
-]
-export const isNumType = t => ['number','integer','percent','ordinal','binary'].includes(t)
-
-export function InputTab({ project }) {
-  const [row, setRow] = useState({})
-  const [popup, setPopup] = useState(false)
-  const [nv, setNv] = useState({ name:'', codeName:'', type:'number' })
-  const [ok, setOk] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [csvErr, setCsvErr] = useState('')
-  const dragIdx = useRef(null)
-  const [dragOver, setDragOver] = useState(null)
-
-  const sortedVars = [...project.variables].sort((a,b)=>(a.order??0)-(b.order??0))
-
-  const onDragStart=idx=>{dragIdx.current=idx}
-  const onDragOver=(e,idx)=>{e.preventDefault();setDragOver(idx)}
-  const onDrop=async(e,idx)=>{e.preventDefault();setDragOver(null);const from=dragIdx.current;if(from===null||from===idx)return;const re=[...sortedVars];const[m]=re.splice(from,1);re.splice(idx,0,m);dragIdx.current=null;const up={};re.forEach((v,i)=>{up[`projects/${project.id}/variables/${v.id}/order`]=i});await update(ref(db),up)}
-
-  // CSV Upload — auto-detect number types
-  const handleCSV = e => {
-    const file = e.target.files[0]; if (!file) return
-    setCsvErr('Đang xử lý...')
-    const reader = new FileReader()
-    reader.onload = async evt => {
-      try {
-        const lines = evt.target.result.split(/\r?\n/).filter(l=>l.trim())
-        if (lines.length < 2) return setCsvErr('Cần ít nhất 1 header + 1 dòng')
-        const headers = parseCSV(lines[0])
-        // Detect types from data
-        const dataLines = lines.slice(1).map(l => parseCSV(l)).filter(cells => cells.some(c=>c.trim()))
-        const existingNames = sortedVars.map(v => v.name.toLowerCase())
-        const varMap = {}
-        sortedVars.forEach(v => { varMap[v.name.toLowerCase()] = v.id })
-        let nextOrder = sortedVars.length
-        for (let hi = 0; hi < headers.length; hi++) {
-          const h = headers[hi]
-          if (!existingNames.includes(h.toLowerCase())) {
-            // Auto-detect type
-            const colVals = dataLines.map(r => r[hi]?.trim()).filter(Boolean)
-            let type = 'string'
-            if (colVals.length > 0) {
-              const allNum = colVals.every(v => !isNaN(Number(v)))
-              if (allNum) {
-                const nums = colVals.map(Number)
-                const allBin = nums.every(v => v === 0 || v === 1)
-                const allInt = nums.every(v => Number.isInteger(v))
-                type = allBin ? 'binary' : allInt ? 'integer' : 'number'
-              }
-            }
-            const codeName = h.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'').toLowerCase()
-            const vr = push(ref(db, `projects/${project.id}/variables`), { name: h, codeName, type, order: nextOrder++ })
-            varMap[h.toLowerCase()] = vr.key
-          }
-        }
-        await new Promise(r=>setTimeout(r,700))
-        let pushed = 0
-        for (const cells of dataLines) {
-          if (cells.every(c=>!c.trim())) continue
-          const rowObj = { createdAt: Date.now() }
-          headers.forEach((h,ci) => {
-            const vid = varMap[h.toLowerCase()]
-            if (!vid) return
-            const val = cells[ci] ?? ''
-            // Try to store as number if numeric
-            const num = Number(val)
-            rowObj[vid] = val !== '' && !isNaN(num) ? num : val
-          })
-          await push(ref(db, `projects/${project.id}/rows`), rowObj)
-          pushed++
-        }
-        setCsvErr(`✓ Import ${pushed} dòng, ${headers.length} cột`)
-      } catch(err) { setCsvErr('Lỗi: '+err.message) }
-    }
-    reader.readAsText(file,'UTF-8')
-    e.target.value=''
-  }
-
-  const parseCSV = line => { const res=[]; let cur='',inQ=false; for(let i=0;i<line.length;i++){if(line[i]==='"')inQ=!inQ;else if(line[i]===','&&!inQ){res.push(cur.trim());cur=''}else cur+=line[i]} res.push(cur.trim()); return res }
-
-  const addVar = async () => {
-    if (!nv.name.trim()) return
-    const codeName = nv.codeName.trim() || nv.name.trim().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'').toLowerCase()
-    await push(ref(db, `projects/${project.id}/variables`), { name: nv.name.trim(), codeName, type: nv.type, order: sortedVars.length })
-    setPopup(false); setNv({ name:'', codeName:'', type:'number' })
-  }
-
-  const deleteVar = (vid, vname) => {
-    if (!window.confirm(`Xóa biến "${vname}"?`)) return
-    remove(ref(db, `projects/${project.id}/variables/${vid}`))
-  }
-
-  const clearAllRows = () => {
-    if (!window.confirm(`Xóa toàn bộ ${project.rows.length} dòng?`)) return
-    remove(ref(db, `projects/${project.id}/rows`))
-  }
-
-  const submit = async () => {
-    setSaving(true)
-    const nr = { createdAt: Date.now() }
-    sortedVars.forEach(v => { const val = row[v.id]; nr[v.id] = v.type==='image' ? (val||'') : isNumType(v.type) && val!==''&&val!==undefined ? Number(val) : (val??'') })
-    try { await push(ref(db, `projects/${project.id}/rows`), nr); setRow({}); setOk(true); setTimeout(()=>setOk(false),2000) }
-    catch(e) { alert('Lỗi: '+e.message) } finally { setSaving(false) }
-  }
-
-  const handlePaste = (e, vid) => { const items = e.clipboardData?.items; if(!items)return; for(const item of items){if(item.type.startsWith('image/')){e.preventDefault();const f=item.getAsFile();const r=new FileReader();r.onload=ev=>setRow(p=>({...p,[vid]:ev.target.result}));r.readAsDataURL(f);return}} }
-
-  const renderField = v => {
-    const val = row[v.id]
-    if (v.type==='image') return <div tabIndex={0} onPaste={e=>handlePaste(e,v.id)} style={{background:'rgba(255,255,255,.04)',border:'1px dashed rgba(255,255,255,.15)',borderRadius:5,padding:'6px 10px',fontSize:12,color:'rgba(200,230,200,.4)',cursor:'text',minHeight:32,display:'flex',alignItems:'center',gap:6}}>
-      {val?<><img src={val} alt="" style={{width:24,height:24,objectFit:'cover',borderRadius:3,border:'1px solid rgba(0,250,154,.3)'}}/><span style={{color:C.green,fontSize:11}}>✓</span><span onClick={()=>setRow(p=>({...p,[v.id]:''})) } style={{color:C.pink,cursor:'pointer',fontSize:11,marginLeft:'auto'}}>✕</span></>:<span>Ctrl+V dán ảnh</span>}</div>
-    if (v.type==='binary') return <select value={val??''} onChange={e=>setRow(p=>({...p,[v.id]:e.target.value}))} style={{fontSize:13}}><option value="">—</option><option value="0">0 — Không</option><option value="1">1 — Có</option></select>
-    if (v.type==='date') return <input type="date" value={val||''} onChange={e=>setRow(p=>({...p,[v.id]:e.target.value}))} style={{fontSize:13}}/>
-    if (isNumType(v.type)) return <input type="number" value={val||''} onChange={e=>setRow(p=>({...p,[v.id]:e.target.value}))} placeholder="0" step={v.type==='integer'?1:0.01} style={{fontSize:13}}/>
-    return <input value={val||''} onChange={e=>setRow(p=>({...p,[v.id]:e.target.value}))} placeholder={v.type==='id'?'BN001':v.type==='name'?'Nguyễn Văn A':'...'} style={{fontSize:13}}/>
-  }
-
-  return (
-    <div style={{height:'100%',display:'flex',flexDirection:'column',overflow:'hidden',padding:10}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,flexShrink:0}}>
-        <span style={{fontFamily:'Orbitron',fontSize:10,color:C.cyan,letterSpacing:'2px'}}>◈ INPUT</span>
-        <div style={{display:'flex',gap:6}}>
-          <label style={{cursor:'pointer',margin:0}}><input type="file" accept=".csv" onChange={handleCSV} style={{display:'none'}}/><span style={{background:'rgba(255,215,0,.07)',border:`1px solid ${C.gold}60`,color:C.gold,padding:'4px 9px',borderRadius:4,fontSize:11,fontFamily:'Orbitron',letterSpacing:'1px',cursor:'pointer',textTransform:'uppercase',display:'inline-block'}}>↑ CSV</span></label>
-          <Btn onClick={()=>setPopup(true)} color={C.cyan} small>+ Biến</Btn>
-        </div>
-      </div>
-      {csvErr&&<div style={{fontSize:12,marginBottom:6,padding:'5px 10px',borderRadius:4,flexShrink:0,color:csvErr.startsWith('✓')?C.green:csvErr==='Đang xử lý...'?C.gold:C.pink,background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)'}}>{csvErr}</div>}
-      <div style={{flex:1,overflow:'auto',minHeight:0}}>
-        {sortedVars.length===0&&<div style={{color:'rgba(200,230,200,.25)',fontSize:13,padding:20,textAlign:'center',border:'1px dashed rgba(255,255,255,.07)',borderRadius:5,lineHeight:2}}>Chưa có biến. Nhấn "+ Biến" hoặc upload CSV.</div>}
-        {sortedVars.map((v,idx)=>(
-          <div key={v.id} draggable onDragStart={()=>onDragStart(idx)} onDragOver={e=>onDragOver(e,idx)} onDrop={e=>onDrop(e,idx)} onDragEnd={()=>setDragOver(null)}
-            style={{display:'grid',gridTemplateColumns:'18px 1fr 44px 16px',gap:4,alignItems:'center',marginBottom:5,padding:'5px 7px',
-              background:dragOver===idx?'rgba(0,229,255,.08)':'rgba(255,255,255,.025)',border:`1px solid ${dragOver===idx?C.cyan:'rgba(255,255,255,.06)'}`,borderRadius:5,cursor:'grab'}}>
-            <span style={{color:'rgba(200,230,200,.2)',fontSize:14,cursor:'grab',textAlign:'center',userSelect:'none'}}>⠿</span>
-            <div>
-              <div style={{fontSize:11,color:'rgba(200,230,200,.45)',marginBottom:2}}>{v.name}{v.codeName&&<span style={{fontSize:9,color:'rgba(200,230,200,.18)',marginLeft:4}}>({v.codeName})</span>}</div>
-              {renderField(v)}
-            </div>
-            <span style={{fontSize:9,color:'rgba(200,230,200,.22)',textAlign:'right',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{v.type==='image'?'🖼':v.type}</span>
-            <span onClick={e=>{e.stopPropagation();deleteVar(v.id,v.name)}} style={{color:'rgba(255,45,120,.2)',cursor:'pointer',fontSize:11,textAlign:'center'}} onMouseEnter={e=>e.currentTarget.style.color=C.pink} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,45,120,.2)'}>✕</span>
-          </div>
-        ))}
-      </div>
-      <div style={{marginTop:8,flexShrink:0}}>
-        <div style={{display:'flex',gap:6}}>
-          <Btn onClick={submit} disabled={sortedVars.length===0||saving} color={C.cyan} style={{flex:1,justifyContent:'center',padding:'10px',fontSize:13}}>{saving?'◌ ...':'+ Thêm dòng'}</Btn>
-          {project.rows.length>0&&<Btn onClick={clearAllRows} color={C.pink} outline small style={{padding:'10px 8px',fontSize:9}} title="Xóa toàn bộ dữ liệu">🗑</Btn>}
-        </div>
-        <div style={{marginTop:5,fontSize:11,color:'rgba(200,230,200,.2)',display:'flex',justifyContent:'space-between'}}><span>{project.rows.length} dòng · {sortedVars.length} biến</span>{ok&&<span style={{color:C.green}}>✓ Đã lưu</span>}</div>
-      </div>
-      {popup&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}}><div className="fade-in" style={{width:380,maxWidth:'90vw'}}><HoloPanel style={{padding:26}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:22}}><div style={{fontFamily:'Orbitron',fontSize:11,color:C.cyan}}>+ THÊM BIẾN</div><span onClick={()=>setPopup(false)} style={{color:'rgba(200,230,200,.4)',cursor:'pointer',fontSize:20}}>✕</span></div>
-        <div style={{marginBottom:14}}><label style={{fontSize:13,color:'rgba(200,230,200,.5)',display:'block',marginBottom:5}}>TÊN BIẾN *</label><input value={nv.name} onChange={e=>setNv(p=>({...p,name:e.target.value}))} placeholder="Creatinine, Tuổi..." autoFocus onKeyDown={e=>e.key==='Enter'&&nv.name.trim()&&addVar()}/></div>
-        <div style={{marginBottom:14}}><label style={{fontSize:13,color:'rgba(200,230,200,.5)',display:'block',marginBottom:5}}>TÊN MÃ HÓA <span style={{fontSize:10,color:'rgba(200,230,200,.25)'}}>( code name )</span></label><input value={nv.codeName} onChange={e=>setNv(p=>({...p,codeName:e.target.value}))} placeholder={nv.name?nv.name.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'').toLowerCase():'vd: creatinine'} style={{fontSize:13}}/></div>
-        <div style={{marginBottom:22}}><label style={{fontSize:13,color:'rgba(200,230,200,.5)',display:'block',marginBottom:5}}>LOẠI BIẾN</label><select value={nv.type} onChange={e=>setNv(p=>({...p,type:e.target.value}))}>{VAR_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select>{nv.type==='image'&&<div style={{fontSize:11,color:C.gold,marginTop:6,opacity:.7}}>💡 Ctrl+V dán ảnh khi nhập dữ liệu</div>}</div>
-        <div style={{display:'flex',gap:10}}><Btn onClick={addVar} color={C.cyan} disabled={!nv.name.trim()} style={{flex:1,justifyContent:'center',padding:'10px',fontSize:13}}>Thêm biến</Btn><Btn onClick={()=>setPopup(false)} color={C.pink} outline style={{padding:'10px 16px',fontSize:13}}>Hủy</Btn></div>
-      </HoloPanel></div></div>}
-    </div>
-  )
-}
+export const VAR_TYPES=[{value:'number',label:'Số liên tục'},{value:'integer',label:'Số nguyên'},{value:'percent',label:'%'},{value:'binary',label:'Nhị phân 0/1'},{value:'ordinal',label:'Thứ hạng'},{value:'categorical',label:'Phân loại'},{value:'string',label:'Văn bản'},{value:'id',label:'Mã/ID'},{value:'name',label:'Tên'},{value:'date',label:'Ngày'},{value:'image',label:'Hình ảnh'}]
+export const isNumType=t=>['number','integer','percent','ordinal','binary'].includes(t)
+export function InputTab({project,pushUndo,setSyncStatus,confirm}){
+  const[row,setRow]=useState({});const[popup,setPopup]=useState(false);const[nv,setNv]=useState({name:'',codeName:'',type:'number',min:'',max:''});const[ok,setOk]=useState(false);const[saving,setSaving]=useState(false);const[csvErr,setCsvErr]=useState('');const dragIdx=useRef(null);const[dragOver,setDragOver]=useState(null);const[editTypeVid,setEditTypeVid]=useState(null)
+  const sortedVars=[...project.variables].sort((a,b)=>(a.order??0)-(b.order??0))
+  const changeVarType=async(vid,t)=>{setSyncStatus('saving');await update(ref(db,`projects/${project.id}/variables/${vid}`),{type:t});setEditTypeVid(null);setSyncStatus('synced')}
+  const autoDetect=async()=>{if(!project.rows.length)return;const up={};let ch=0;for(const v of sortedVars){if(v.type!=='string')continue;const vals=project.rows.map(r=>r[v.id]).filter(x=>x!=null&&x!==''&&x!=='NA');if(!vals.length)continue;const nV=vals.filter(x=>!isNaN(Number(x)));if(nV.length>=vals.length*.8){const nums=nV.map(Number),u=new Set(nums);const t=u.size<=2&&[...u].every(x=>x===0||x===1)?'binary':nums.every(x=>Number.isInteger(x))?'integer':'number';up[`projects/${project.id}/variables/${v.id}/type`]=t;ch++}}if(ch){setSyncStatus('saving');await update(ref(db),up);setSyncStatus('synced');setCsvErr(`✓ ${ch} biến số`)}else setCsvErr('Không tìm thêm');setTimeout(()=>setCsvErr(''),3000)}
+  const onDS=i=>{dragIdx.current=i};const onDO=(e,i)=>{e.preventDefault();setDragOver(i)};const onDr=async(e,i)=>{e.preventDefault();setDragOver(null);const f=dragIdx.current;if(f===null||f===i)return;const re=[...sortedVars];const[m]=re.splice(f,1);re.splice(i,0,m);dragIdx.current=null;const up={};re.forEach((v,j)=>{up[`projects/${project.id}/variables/${v.id}/order`]=j});await update(ref(db),up)}
+  const handleCSV=e=>{const file=e.target.files[0];if(!file)return;setCsvErr('Đang xử lý...');const reader=new FileReader();reader.onload=async evt=>{try{let text=evt.target.result;if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);const lines=text.split(/\r?\n/).filter(l=>l.trim());if(lines.length<2)return setCsvErr('Cần ≥2 dòng');const cc=(lines[0].match(/,/g)||[]).length,sc=(lines[0].match(/;/g)||[]).length,dl=sc>cc?';':',';const parse=line=>{const res=[];let cur='',inQ=false;for(let i=0;i<line.length;i++){if(line[i]==='"')inQ=!inQ;else if(line[i]===dl&&!inQ){res.push(cur.trim());cur=''}else cur+=line[i]}res.push(cur.trim());return res};const hds=parse(lines[0]),dls=lines.slice(1).map(l=>parse(l)).filter(c=>c.some(x=>x.trim()));const eN=sortedVars.map(v=>v.name.toLowerCase()),vm={};sortedVars.forEach(v=>{vm[v.name.toLowerCase()]=v.id});let no=sortedVars.length;for(let hi=0;hi<hds.length;hi++){const h=hds[hi];if(!h.trim()||eN.includes(h.toLowerCase()))continue;const cv=dls.map(r=>(r[hi]||'').trim()).filter(Boolean);let type='string';if(cv.length){const nv2=cv.filter(v=>!isNaN(Number(v)));if(nv2.length>=cv.length*.8){const nums=nv2.map(Number),u=new Set(nums);type=u.size<=2&&[...u].every(x=>x===0||x===1)?'binary':nums.every(x=>Number.isInteger(x))?'integer':'number'}else if(cv.filter(v=>/^\d{1,4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,4}$/.test(v)).length>=cv.length*.8)type='date'}const cn=h.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'').toLowerCase();const vr=push(ref(db,`projects/${project.id}/variables`),{name:h,codeName:cn,type,order:no++});vm[h.toLowerCase()]=vr.key}await new Promise(r=>setTimeout(r,700));let pushed=0;setSyncStatus('saving');for(const cells of dls){if(cells.every(c=>!c.trim()))continue;const ro={createdAt:Date.now()};hds.forEach((h,ci)=>{if(!h.trim())return;const vid=vm[h.toLowerCase()];if(!vid)return;const val=(cells[ci]||'').trim();const num=Number(val);ro[vid]=val!==''&&!isNaN(num)?num:val});await push(ref(db,`projects/${project.id}/rows`),ro);pushed++}setSyncStatus('synced');setCsvErr(`✓ ${pushed} dòng, ${hds.length} cột`)}catch(err){setCsvErr('Lỗi: '+err.message)}};reader.readAsText(file,'UTF-8');e.target.value=''}
+  const addVar=async()=>{if(!nv.name.trim())return;const cn=nv.codeName.trim()||nv.name.trim().replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'').toLowerCase();const d={name:nv.name.trim(),codeName:cn,type:nv.type,order:sortedVars.length};if(nv.min!=='')d.min=Number(nv.min);if(nv.max!=='')d.max=Number(nv.max);await push(ref(db,`projects/${project.id}/variables`),d);setPopup(false);setNv({name:'',codeName:'',type:'number',min:'',max:''})}
+  const deleteVar=async(vid,vn)=>{if(!await confirm(`Xóa biến "${vn}"?`))return;const vD=project.variables.find(v=>v.id===vid);if(vD)pushUndo({type:'deleteVar',pid:project.id,vid,data:{name:vD.name,codeName:vD.codeName,type:vD.type,order:vD.order}});setSyncStatus('saving');await remove(ref(db,`projects/${project.id}/variables/${vid}`));setSyncStatus('synced')}
+  const clearAll=async()=>{if(!await confirm(`Xóa ${project.rows.length} dòng?\nKhông hoàn tác.`))return;setSyncStatus('saving');await remove(ref(db,`projects/${project.id}/rows`));setSyncStatus('synced')}
+  const submit=async()=>{setSaving(true);const nr={createdAt:Date.now()};sortedVars.forEach(v=>{const val=row[v.id];if(val==='NA'||val==='N/A'){nr[v.id]='NA';return}nr[v.id]=v.type==='image'?(val||''):isNumType(v.type)&&val!==''&&val!==undefined?Number(val):(val??'')});try{setSyncStatus('saving');await push(ref(db,`projects/${project.id}/rows`),nr);setSyncStatus('synced');setRow({});setOk(true);setTimeout(()=>setOk(false),2000)}catch(e){}finally{setSaving(false)}}
+  const handlePaste=(e,vid)=>{const items=e.clipboardData?.items;if(!items)return;for(const item of items){if(item.type.startsWith('image/')){e.preventDefault();const f=item.getAsFile();const r=new FileReader();r.onload=ev=>setRow(p=>({...p,[vid]:ev.target.result}));r.readAsDataURL(f);return}}}
+  const renderField=v=>{const val=row[v.id];if(v.type==='image')return<div tabIndex={0} onPaste={e=>handlePaste(e,v.id)} style={{background:'rgba(255,255,255,.04)',border:'1px dashed rgba(255,255,255,.15)',borderRadius:4,padding:'4px 8px',fontSize:11,color:'rgba(200,230,200,.4)',cursor:'text',minHeight:26,display:'flex',alignItems:'center',gap:4}}>{val?<><img src={val} alt="" style={{width:20,height:20,objectFit:'cover',borderRadius:2}}/><span style={{color:C.green,fontSize:9}}>✓</span><span onClick={()=>setRow(p=>({...p,[v.id]:''}))} style={{color:C.pink,cursor:'pointer',fontSize:9,marginLeft:'auto'}}>✕</span></>:<span>Ctrl+V</span>}</div>
+    if(v.type==='binary')return<select value={val??''} onChange={e=>setRow(p=>({...p,[v.id]:e.target.value}))} style={{fontSize:12,padding:'4px 6px'}}><option value="">—</option><option value="0">0</option><option value="1">1</option><option value="NA">NA</option></select>
+    const nVal=Number(val);const hMin=v.min!=null;const hMax=v.max!=null;const bad=isNumType(v.type)&&val!==''&&val!=null&&!isNaN(nVal)&&((hMin&&nVal<v.min)||(hMax&&nVal>v.max))
+    if(isNumType(v.type))return<div><input type="number" value={val||''} onChange={e=>setRow(p=>({...p,[v.id]:e.target.value}))} placeholder={hMin||hMax?`${v.min??''}–${v.max??''}`:'0'} step={v.type==='integer'?1:0.01} style={{fontSize:12,padding:'4px 6px',borderColor:bad?C.pink:undefined}}/>{bad&&<div style={{fontSize:8,color:C.pink,marginTop:1}}>⚠ {v.min??''}–{v.max??''}</div>}</div>
+    return<input value={val||''} onChange={e=>setRow(p=>({...p,[v.id]:e.target.value}))} placeholder={v.type==='id'?'BN001':'...'} style={{fontSize:12,padding:'4px 6px'}}/>}
+  return<div style={{height:'100%',display:'flex',flexDirection:'column',overflow:'hidden',padding:8}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5,flexShrink:0}}><span style={{fontFamily:'Orbitron',fontSize:10,color:C.cyan,letterSpacing:'2px'}}>◈ INPUT</span><div style={{display:'flex',gap:3}}><label style={{cursor:'pointer'}}><input type="file" accept=".csv" onChange={handleCSV} style={{display:'none'}}/><span style={{background:'rgba(255,215,0,.07)',border:`1px solid ${C.gold}60`,color:C.gold,padding:'3px 7px',borderRadius:4,fontSize:9,fontFamily:'Orbitron',letterSpacing:'1px',cursor:'pointer',display:'inline-block'}}>↑CSV</span></label><Btn onClick={autoDetect} color={C.blue} small title="Auto-detect">⟳</Btn><Btn onClick={()=>setPopup(true)} color={C.cyan} small>+Biến</Btn></div></div>
+    {csvErr&&<div style={{fontSize:10,marginBottom:3,padding:'3px 7px',borderRadius:3,flexShrink:0,color:csvErr.startsWith('✓')?C.green:C.pink,background:'rgba(255,255,255,.04)'}}>{csvErr}</div>}
+    <div style={{flex:1,overflow:'auto',minHeight:0}}>{sortedVars.length===0&&<div style={{color:'rgba(200,230,200,.25)',fontSize:12,padding:16,textAlign:'center',border:'1px dashed rgba(255,255,255,.07)',borderRadius:5,lineHeight:2}}>Chưa có biến</div>}
+      {sortedVars.map((v,idx)=><div key={v.id} draggable onDragStart={()=>onDS(idx)} onDragOver={e=>onDO(e,idx)} onDrop={e=>onDr(e,idx)} onDragEnd={()=>setDragOver(null)} style={{display:'grid',gridTemplateColumns:'14px 1fr auto 12px',gap:3,alignItems:'center',marginBottom:3,padding:'3px 5px',background:dragOver===idx?'rgba(0,229,255,.08)':'rgba(255,255,255,.025)',border:`1px solid ${dragOver===idx?C.cyan:'rgba(255,255,255,.06)'}`,borderRadius:4,cursor:'grab'}}>
+        <span style={{color:'rgba(200,230,200,.2)',fontSize:11,cursor:'grab',textAlign:'center',userSelect:'none'}}>⠿</span>
+        <div><div style={{fontSize:10,color:'rgba(200,230,200,.5)',marginBottom:1}}>{v.name}{v.codeName&&<span style={{fontSize:8,color:'rgba(200,230,200,.15)',marginLeft:3}}>({v.codeName})</span>}</div>{renderField(v)}</div>
+        <div style={{position:'relative'}}><span onClick={e=>{e.stopPropagation();setEditTypeVid(editTypeVid===v.id?null:v.id)}} title="Đổi type" style={{fontSize:8,color:isNumType(v.type)?C.green:v.type==='categorical'?C.purple:'rgba(200,230,200,.25)',cursor:'pointer',padding:'1px 3px',borderRadius:2,border:'1px solid rgba(255,255,255,.08)',background:'rgba(255,255,255,.03)'}}>{v.type==='image'?'🖼':v.type}</span>
+          {editTypeVid===v.id&&<div style={{position:'absolute',right:0,top:'100%',zIndex:200,background:'#0D0D1F',border:'1px solid rgba(0,229,255,.3)',borderRadius:4,padding:2,width:115,maxHeight:170,overflowY:'auto',boxShadow:'0 4px 16px rgba(0,0,0,.5)',marginTop:1}}>{VAR_TYPES.map(t=><div key={t.value} onClick={e=>{e.stopPropagation();changeVarType(v.id,t.value)}} style={{padding:'2px 5px',fontSize:9,cursor:'pointer',color:v.type===t.value?C.cyan:'rgba(200,230,200,.5)',background:v.type===t.value?'rgba(0,229,255,.1)':'transparent',borderRadius:2}} onMouseEnter={e=>e.currentTarget.style.background='rgba(0,229,255,.08)'} onMouseLeave={e=>e.currentTarget.style.background=v.type===t.value?'rgba(0,229,255,.1)':'transparent'}>{t.label}</div>)}</div>}</div>
+        <span onClick={e=>{e.stopPropagation();deleteVar(v.id,v.name)}} style={{color:'rgba(255,45,120,.2)',cursor:'pointer',fontSize:10,textAlign:'center'}} onMouseEnter={e=>e.currentTarget.style.color=C.pink} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,45,120,.2)'}>✕</span>
+      </div>)}</div>
+    <div style={{marginTop:5,flexShrink:0}}><div style={{display:'flex',gap:4}}><Btn onClick={submit} disabled={sortedVars.length===0||saving} color={C.cyan} style={{flex:1,justifyContent:'center',padding:'7px',fontSize:11}}>{saving?'◌':'+ Thêm dòng'}</Btn>{project.rows.length>0&&<Btn onClick={clearAll} color={C.pink} outline small style={{padding:'7px 5px',fontSize:8}} title="Xóa tất cả">🗑</Btn>}</div><div style={{marginTop:2,fontSize:9,color:'rgba(200,230,200,.22)',display:'flex',justifyContent:'space-between'}}><span>{project.rows.length} dòng · {sortedVars.length} biến</span>{ok&&<span style={{color:C.green}}>✓</span>}</div></div>
+    {popup&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.8)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}} onClick={()=>setPopup(false)}><div className="fade-in" style={{width:380,maxWidth:'90vw'}} onClick={e=>e.stopPropagation()}><HoloPanel style={{padding:22}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><div style={{fontFamily:'Orbitron',fontSize:11,color:C.cyan}}>+ THÊM BIẾN</div><span onClick={()=>setPopup(false)} style={{color:'rgba(200,230,200,.4)',cursor:'pointer',fontSize:20}}>✕</span></div><div style={{marginBottom:10}}><label style={{fontSize:12,color:'rgba(200,230,200,.5)',display:'block',marginBottom:3}}>TÊN BIẾN *</label><input value={nv.name} onChange={e=>setNv(p=>({...p,name:e.target.value}))} placeholder="Creatinine..." autoFocus onKeyDown={e=>{if(e.key==='Enter'&&nv.name.trim())addVar();if(e.key==='Escape')setPopup(false)}}/></div><div style={{marginBottom:10}}><label style={{fontSize:12,color:'rgba(200,230,200,.5)',display:'block',marginBottom:3}}>MÃ HÓA</label><input value={nv.codeName} onChange={e=>setNv(p=>({...p,codeName:e.target.value}))} placeholder={nv.name?nv.name.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'').toLowerCase():'code'} style={{fontSize:12}}/></div><div style={{marginBottom:10}}><label style={{fontSize:12,color:'rgba(200,230,200,.5)',display:'block',marginBottom:3}}>LOẠI BIẾN</label><select value={nv.type} onChange={e=>setNv(p=>({...p,type:e.target.value}))}>{VAR_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}</select></div>{isNumType(nv.type)&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:10}}><div><label style={{fontSize:10,color:'rgba(200,230,200,.4)',display:'block',marginBottom:2}}>MIN</label><input type="number" value={nv.min} onChange={e=>setNv(p=>({...p,min:e.target.value}))} placeholder="—" style={{fontSize:11}}/></div><div><label style={{fontSize:10,color:'rgba(200,230,200,.4)',display:'block',marginBottom:2}}>MAX</label><input type="number" value={nv.max} onChange={e=>setNv(p=>({...p,max:e.target.value}))} placeholder="—" style={{fontSize:11}}/></div></div>}<div style={{display:'flex',gap:8}}><Btn onClick={addVar} color={C.cyan} disabled={!nv.name.trim()} style={{flex:1,justifyContent:'center',padding:'8px',fontSize:11}}>Thêm ↵</Btn><Btn onClick={()=>setPopup(false)} color={C.pink} outline style={{padding:'8px 12px',fontSize:11}}>Hủy Esc</Btn></div></HoloPanel></div></div>}
+  </div>}
