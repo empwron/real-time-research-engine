@@ -3,7 +3,7 @@ import { AreaChart, Area, BarChart, Bar, ScatterChart, Scatter, LineChart, Line,
 import { Btn, Pill } from '../ui/index.jsx'
 import { C, CHART_COLORS } from '../../theme.js'
 import { isNumType } from './InputTab.jsx'
-import { descriptive, freqTable, pearsonR, spearmanR, welchTTest, mannWhitneyU, linearRegression, logisticRegression, oneWayAnova, clean, isNormal, shapiroWilk, leveneTest } from '../../utils/statistics.js'
+import { descriptive, freqTable, pearsonR, spearmanR, welchTTest, mannWhitneyU, linearRegression, logisticRegression, multiLogisticRegression, oneWayAnova, clean, isNormal, shapiroWilk, leveneTest } from '../../utils/statistics.js'
 import { suggestModels } from '../../utils/modelAdvisor.js'
 import { exportStatsCSV } from '../../utils/export.js'
 
@@ -20,6 +20,8 @@ const catLabel=(v,val)=>v.type==='binary'?(val==='1'||val===1?'Có':'Không'):St
 export function ChartTab({project,advisorModel,onAdvisorSelect}){
   const[tab,setTab]=useState('chart');const[ct,setCt]=useState('area');const[selVars,setSV]=useState(new Set());const[cc,setCC]=useState({});const[scf,setSCF]=useState(null);const[aav,setAAV]=useState(null);const[histMode,setHistMode]=useState('density')
   const[mdv,setMdv]=useState('');const[miv,setMiv]=useState(new Set());const[mgv,setMgv]=useState('')
+  const[corrDetail,setCorrDetail]=useState(null) // {v1,v2,r,p,n,method}
+  const[predValues,setPredValues]=useState({}) // {varId: value} for prediction calculator
   // Binning/grouping config: {varId: {breaks:[30,60], labels:['<30','30-60','>60']}}
   const[binCfg,setBinCfg]=useState({})
   const[binEditor,setBinEditor]=useState(null) // varId being edited
@@ -98,7 +100,21 @@ export function ChartTab({project,advisorModel,onAdvisorSelect}){
 
   // Model computation (unchanged)
   const aov=useMemo(()=>[...bv,...nv],[bv,nv]);const depV=useMemo(()=>aov.find(v=>v.id===mdv),[aov,mdv])
-  const mr=useMemo(()=>{if(!depV||(miv.size===0&&!mgv))return null;const il=cnv.filter(v=>miv.has(v.id)&&v.id!==depV.id);if(mgv){const gv=cv.find(v=>v.id===mgv);if(gv){const groups=[...new Set(project.rows.map(r=>r[gv.id]).filter(Boolean))];if(groups.length===2){const g1=project.rows.filter(r=>r[gv.id]===groups[0]).map(r=>r[depV.id]),g2=project.rows.filter(r=>r[gv.id]===groups[1]).map(r=>r[depV.id]);const n2=isNormal(g1)&&isNormal(g2)&&g1.length>=20&&g2.length>=20;const res=n2?welchTTest(g1,g2):mannWhitneyU(g1,g2);return res?{type:n2?'ttest':'mw',result:res,groups}:null}if(groups.length>=3){const gd=groups.map(g=>project.rows.filter(r=>r[gv.id]===g).map(r=>r[depV.id]));const res=oneWayAnova(gd);return res?{type:'anova',result:res}:null}}}if(!il.length)return null;if(depV.type==='binary'){const xv=il[0];const res=logisticRegression(project.rows.map(r=>r[xv.id]),project.rows.map(r=>r[depV.id]));return res?{type:'logistic',result:res}:null}const xv=il[0];const res=linearRegression(project.rows.map(r=>r[xv.id]),project.rows.map(r=>r[depV.id]));return res?{type:'linear',result:res}:null},[depV,miv,mgv,project.rows,cnv,cv])
+  const mr=useMemo(()=>{if(!depV||(miv.size===0&&!mgv))return null;const il=cnv.filter(v=>miv.has(v.id)&&v.id!==depV.id)
+    // Group comparison
+    if(mgv){const gv=cv.find(v=>v.id===mgv);if(gv){const groups=[...new Set(project.rows.map(r=>r[gv.id]).filter(Boolean))];if(groups.length===2){const g1=project.rows.filter(r=>r[gv.id]===groups[0]).map(r=>r[depV.id]),g2=project.rows.filter(r=>r[gv.id]===groups[1]).map(r=>r[depV.id]);const n2=isNormal(g1)&&isNormal(g2)&&g1.length>=20&&g2.length>=20;const res=n2?welchTTest(g1,g2):mannWhitneyU(g1,g2);return res?{type:n2?'ttest':'mw',result:res,groups}:null}if(groups.length>=3){const gd=groups.map(g=>project.rows.filter(r=>r[gv.id]===g).map(r=>r[depV.id]));const res=oneWayAnova(gd);return res?{type:'anova',result:res}:null}}}
+    if(!il.length)return null
+    // Binary outcome → logistic (always multivariable, even k=1)
+    if(depV.type==='binary'){
+      const xArrays=il.map(v=>project.rows.map(r=>r[v.id]))
+      const yA=project.rows.map(r=>r[depV.id])
+      const res=multiLogisticRegression(xArrays,yA)
+      return res?{type:il.length>=2?'multiLogistic':'logistic',result:res,xVars:il}:null
+    }
+    // Continuous outcome → linear
+    const xv=il[0];const res=linearRegression(project.rows.map(r=>r[xv.id]),project.rows.map(r=>r[depV.id]))
+    return res?{type:'linear',result:res,xVars:[xv]}:null
+  },[depV,miv,mgv,project.rows,cnv,cv])
 
   // ─── Helpers ────
   const groupedStats=(gv,yv)=>{
@@ -331,17 +347,97 @@ export function ChartTab({project,advisorModel,onAdvisorSelect}){
   const renderCorr=()=>{if(nv.length<2)return d1();return<div style={{overflow:'auto',flex:1,padding:4}}><table style={{borderCollapse:'collapse',fontSize:10,width:'100%'}}><thead><tr><th style={{padding:'4px 6px',textAlign:'left',fontSize:9,borderBottom:'1px solid rgba(191,95,255,.2)',color:'rgba(200,230,200,.5)'}}></th>{nv.map(v=><th key={v.id} style={{padding:'4px 6px',textAlign:'left',fontSize:9,borderBottom:'1px solid rgba(191,95,255,.2)',color:C.purple}}>{v.name}</th>)}</tr></thead>
     <tbody>{nv.map(v1=><tr key={v1.id}><td style={{padding:'3px 6px',fontSize:10,borderBottom:'1px solid rgba(191,95,255,.05)',color:C.purple,fontWeight:600}}>{v1.name}</td>{nv.map(v2=>{if(v1.id===v2.id)return<td key={v2.id} style={{padding:'3px 6px',fontSize:10,borderBottom:'1px solid rgba(191,95,255,.05)',color:C.green,fontWeight:700}}>1.00</td>;const fn=isNormal(project.rows.map(r=>r[v1.id]))?pearsonR:spearmanR;const res=fn(project.rows.map(r=>r[v1.id]),project.rows.map(r=>r[v2.id]));const abs=Math.abs(res.r);return<td key={v2.id} style={{padding:'3px 6px',fontSize:10,borderBottom:'1px solid rgba(191,95,255,.05)',color:abs>.7?C.green:abs>.4?C.gold:'rgba(200,230,200,.5)',fontWeight:abs>.7?700:400}}>{isNaN(res.r)?'—':res.r.toFixed(3)}{res.p<.05&&'*'}</td>})}</tr>)}</tbody></table></div>}
 
-  // ─── Model ────
+  // ─── Corr (with click-to-interpret) ────
+  const corrInterpret=(r,p,n)=>{const abs=Math.abs(r);const strength=abs>=.9?'Rất mạnh':abs>=.7?'Mạnh':abs>=.5?'Trung bình':abs>=.3?'Yếu':'Rất yếu';const dir=r>0?'thuận (dương)':'nghịch (âm)';const sig=p<.001?'Có ý nghĩa thống kê (p < 0.001)':p<.01?'Có ý nghĩa thống kê (p < 0.01)':p<.05?'Có ý nghĩa thống kê (p < 0.05)':'Không có ý nghĩa thống kê (p ≥ 0.05)';return{strength,dir,sig,r2:+(abs*abs*100).toFixed(1)}}
+  const renderCorr=()=>{if(nv.length<2)return d1();return<div style={{overflow:'auto',flex:1,padding:4}}>
+    <table style={{borderCollapse:'collapse',fontSize:10,width:'100%'}}><thead><tr><th style={{padding:'4px 6px',textAlign:'left',fontSize:9,borderBottom:'1px solid rgba(191,95,255,.2)',color:'rgba(200,230,200,.5)'}}></th>{nv.map(v=><th key={v.id} style={{padding:'4px 6px',textAlign:'left',fontSize:9,borderBottom:'1px solid rgba(191,95,255,.2)',color:C.purple}}>{v.name}</th>)}</tr></thead>
+    <tbody>{nv.map(v1=><tr key={v1.id}><td style={{padding:'3px 6px',fontSize:10,borderBottom:'1px solid rgba(191,95,255,.05)',color:C.purple,fontWeight:600}}>{v1.name}</td>
+      {nv.map(v2=>{if(v1.id===v2.id)return<td key={v2.id} style={{padding:'3px 6px',fontSize:10,borderBottom:'1px solid rgba(191,95,255,.05)',color:C.green,fontWeight:700}}>1.00</td>
+        const method=isNormal(project.rows.map(r=>r[v1.id]))?'Pearson':'Spearman'
+        const fn=method==='Pearson'?pearsonR:spearmanR
+        const res=fn(project.rows.map(r=>r[v1.id]),project.rows.map(r=>r[v2.id]))
+        const abs=Math.abs(res.r)
+        return<td key={v2.id} onClick={()=>setCorrDetail({v1:v1.name,v2:v2.name,r:res.r,p:res.p,n:res.n,method})}
+          style={{padding:'3px 6px',fontSize:10,borderBottom:'1px solid rgba(191,95,255,.05)',cursor:'pointer',
+            color:abs>.7?C.green:abs>.4?C.gold:'rgba(200,230,200,.5)',fontWeight:abs>.7?700:400,
+            background:corrDetail?.v1===v1.name&&corrDetail?.v2===v2.name?'rgba(191,95,255,.12)':'transparent'}}
+          onMouseEnter={e=>e.currentTarget.style.background='rgba(191,95,255,.08)'}
+          onMouseLeave={e=>e.currentTarget.style.background=corrDetail?.v1===v1.name&&corrDetail?.v2===v2.name?'rgba(191,95,255,.12)':'transparent'}>
+          {isNaN(res.r)?'—':res.r.toFixed(3)}{res.p<.05&&'*'}</td>})}</tr>)}</tbody></table>
+    {/* Correlation interpretation popup */}
+    {corrDetail&&!isNaN(corrDetail.r)&&(()=>{const ci=corrInterpret(corrDetail.r,corrDetail.p,corrDetail.n);return<div style={{marginTop:8,padding:10,background:'rgba(191,95,255,.06)',border:'1px solid rgba(191,95,255,.2)',borderRadius:5}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+        <span style={{fontFamily:'Orbitron',fontSize:9,color:C.purple}}>📊 {corrDetail.v1} ↔ {corrDetail.v2}</span>
+        <span onClick={()=>setCorrDetail(null)} style={{cursor:'pointer',color:'rgba(200,230,200,.3)',fontSize:14}}>✕</span></div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:11,color:'rgba(200,230,200,.7)',lineHeight:1.6}}>
+        <div>Phương pháp: <span style={{color:C.purple}}>{corrDetail.method}</span></div>
+        <div>N: <span style={{color:C.blue}}>{corrDetail.n}</span></div>
+        <div>r = <span style={{color:C.green,fontWeight:700}}>{corrDetail.r.toFixed(4)}</span></div>
+        <div>p = <span style={{color:corrDetail.p<.05?C.green:C.pink,fontWeight:700}}>{corrDetail.p<.001?'< 0.001':corrDetail.p.toFixed(4)}</span></div>
+        <div>Hướng: <span style={{color:corrDetail.r>0?C.green:C.pink}}>{ci.dir}</span></div>
+        <div>Mức độ: <span style={{color:C.gold}}>{ci.strength}</span></div>
+        <div style={{gridColumn:'span 2'}}>R² = {ci.r2}% — biến "{corrDetail.v1}" giải thích {ci.r2}% biến thiên của "{corrDetail.v2}"</div>
+        <div style={{gridColumn:'span 2',color:corrDetail.p<.05?C.green:C.pink,fontWeight:600}}>{ci.sig}</div>
+      </div>
+    </div>})()}</div>}
+
+  // ─── Model (multivariable + prediction) ────
   const renderModel=()=><div style={{overflow:'auto',flex:1,padding:4}}>
-    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:8}}><div><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>Y</label><select value={mdv} onChange={e=>setMdv(e.target.value)} style={{fontSize:11}}><option value="">—</option>{aov.map(v=><option key={v.id} value={v.id}>{v.name} [{v.type}]</option>)}</select></div><div><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>Nhóm</label><select value={mgv} onChange={e=>setMgv(e.target.value)} style={{fontSize:11}}><option value="">—</option>{cv.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></div></div>
-    <div style={{marginBottom:8}}><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>X</label><div style={{display:'flex',flexWrap:'wrap',gap:3}}>{cnv.filter(v=>v.id!==mdv).map(v=><span key={v.id} onClick={()=>setMiv(p=>{const n=new Set(p);n.has(v.id)?n.delete(v.id):n.add(v.id);return n})} style={{padding:'2px 7px',borderRadius:3,fontSize:9,cursor:'pointer',background:miv.has(v.id)?'rgba(255,107,53,.18)':'rgba(255,255,255,.04)',border:`1px solid ${miv.has(v.id)?C.orange:'rgba(255,255,255,.08)'}`,color:miv.has(v.id)?C.orange:'rgba(200,230,200,.4)'}}>{v.name}</span>)}</div></div>
-    {mr?<div style={{padding:8,background:'rgba(255,107,53,.04)',border:`1px solid ${C.orange}30`,borderRadius:5}}><div style={{fontFamily:'Orbitron',fontSize:8,color:C.orange,letterSpacing:'2px',marginBottom:6}}>◎ {mr.type==='logistic'?'LOGISTIC':mr.type==='linear'?'LINEAR':mr.type==='ttest'?"T-TEST":mr.type==='mw'?'MANN-WHITNEY':'ANOVA'}</div><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(90px,1fr))',gap:4}}>
-      {mr.type==='logistic'&&<><Pill label="OR" value={mr.result.or} color={C.orange}/><Pill label="ACC" value={`${mr.result.accuracy}%`} color={C.green}/><Pill label="SENS" value={`${mr.result.sensitivity}%`} color={C.blue}/><Pill label="SPEC" value={`${mr.result.specificity}%`} color={C.purple}/></>}
-      {mr.type==='linear'&&<><Pill label="β" value={mr.result.slope} color={C.blue}/><Pill label="R²" value={mr.result.r2} color={C.green}/><Pill label="RMSE" value={mr.result.rmse} color={C.orange}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/></>}
-      {mr.type==='ttest'&&<><Pill label="T" value={mr.result.t} color={C.pink}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/><Pill label="M1" value={mr.result.mean1}/><Pill label="M2" value={mr.result.mean2}/><Pill label="Cohen d" value={mr.result.cohend} color={C.gold}/></>}
-      {mr.type==='mw'&&<><Pill label="U" value={mr.result.U} color={C.pink}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/></>}
-      {mr.type==='anova'&&<><Pill label="F" value={mr.result.F} color={C.orange}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/><Pill label="η²" value={mr.result.eta2} color={C.gold}/></>}
-    </div></div>:<div style={{padding:14,color:'rgba(200,230,200,.2)',fontSize:11,textAlign:'center'}}>{mdv?'Chọn X':'Chọn Y và X'}</div>}</div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:8}}><div><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>Y (outcome)</label><select value={mdv} onChange={e=>{setMdv(e.target.value);setPredValues({})}} style={{fontSize:11}}><option value="">—</option>{aov.map(v=><option key={v.id} value={v.id}>{v.name} [{v.type}]</option>)}</select></div><div><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>Nhóm (so sánh)</label><select value={mgv} onChange={e=>setMgv(e.target.value)} style={{fontSize:11}}><option value="">—</option>{cv.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></div></div>
+    <div style={{marginBottom:8}}><label style={{fontSize:8,color:C.orange,fontFamily:'Orbitron',display:'block',marginBottom:2}}>X (predictors) — chọn nhiều cho đa biến</label><div style={{display:'flex',flexWrap:'wrap',gap:3}}>{cnv.filter(v=>v.id!==mdv).map(v=><span key={v.id} onClick={()=>{setMiv(p=>{const n2=new Set(p);n2.has(v.id)?n2.delete(v.id):n2.add(v.id);return n2});setPredValues({})}} style={{padding:'2px 7px',borderRadius:3,fontSize:9,cursor:'pointer',background:miv.has(v.id)?'rgba(255,107,53,.18)':'rgba(255,255,255,.04)',border:`1px solid ${miv.has(v.id)?C.orange:'rgba(255,255,255,.08)'}`,color:miv.has(v.id)?C.orange:'rgba(200,230,200,.4)'}}>{v.name}</span>)}</div></div>
+    {/* Results */}
+    {mr?<div style={{padding:8,background:'rgba(255,107,53,.04)',border:`1px solid ${C.orange}30`,borderRadius:5,marginBottom:8}}>
+      <div style={{fontFamily:'Orbitron',fontSize:8,color:C.orange,letterSpacing:'2px',marginBottom:6}}>◎ {(mr.type==='multiLogistic'||mr.type==='logistic')?`LOGISTIC REGRESSION (${mr.result.k} biến)`:mr.type==='linear'?'LINEAR':mr.type==='ttest'?"T-TEST":mr.type==='mw'?'MANN-WHITNEY':'ANOVA'}</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(90px,1fr))',gap:4}}>
+        {(mr.type==='multiLogistic'||mr.type==='logistic')&&<><Pill label="ACC" value={`${mr.result.accuracy}%`} color={C.green}/><Pill label="SENS" value={`${mr.result.sensitivity}%`} color={C.blue}/><Pill label="SPEC" value={`${mr.result.specificity}%`} color={C.purple}/><Pill label="PPV" value={`${mr.result.ppv}%`} color={C.cyan}/><Pill label="NPV" value={`${mr.result.npv}%`} color={C.gold}/><Pill label="McFadden" value={mr.result.mcFaddenR2} color={C.orange}/><Pill label="N" value={mr.result.n}/></>}
+        {mr.type==='linear'&&<><Pill label="β" value={mr.result.slope} color={C.blue}/><Pill label="R²" value={mr.result.r2} color={C.green}/><Pill label="RMSE" value={mr.result.rmse} color={C.orange}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/></>}
+        {mr.type==='ttest'&&<><Pill label="T" value={mr.result.t} color={C.pink}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/><Pill label="Cohen d" value={mr.result.cohend} color={C.gold}/></>}
+        {mr.type==='mw'&&<><Pill label="U" value={mr.result.U} color={C.pink}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/></>}
+        {mr.type==='anova'&&<><Pill label="F" value={mr.result.F} color={C.orange}/><Pill label="P" value={mr.result.interpretation} color={mr.result.significant?C.green:C.pink}/><Pill label="η²" value={mr.result.eta2} color={C.gold}/></>}
+      </div>
+      {/* Per-variable coefficients for multiLogistic */}
+      {(mr.type==='multiLogistic'||mr.type==='logistic')&&mr.xVars&&<div style={{marginTop:8,borderTop:'1px solid rgba(255,255,255,.06)',paddingTop:6}}>
+        <div style={{fontFamily:'Orbitron',fontSize:7,color:'rgba(200,230,200,.3)',letterSpacing:'1px',marginBottom:4}}>COEFFICIENTS</div>
+        <table style={{width:'100%',fontSize:10,borderCollapse:'collapse'}}>
+          <thead><tr style={{borderBottom:'1px solid rgba(255,107,53,.15)'}}>
+            <th style={{textAlign:'left',padding:'3px 6px',color:C.orange,fontSize:9}}>Biến</th>
+            <th style={{textAlign:'right',padding:'3px 6px',color:'rgba(200,230,200,.4)',fontSize:9}}>β</th>
+            <th style={{textAlign:'right',padding:'3px 6px',color:'rgba(200,230,200,.4)',fontSize:9}}>OR</th>
+          </tr></thead>
+          <tbody>{mr.xVars.map((xv,xi)=>{const c=mr.result.coefficients[xi];return<tr key={xv.id} style={{borderBottom:'1px solid rgba(255,255,255,.03)'}}>
+            <td style={{padding:'3px 6px',color:'rgba(200,230,200,.6)'}}>{xv.name}</td>
+            <td style={{padding:'3px 6px',textAlign:'right',color:c.coef>0?C.green:C.pink}}>{c.coef}</td>
+            <td style={{padding:'3px 6px',textAlign:'right',color:C.orange,fontWeight:600}}>{c.or}</td>
+          </tr>})}</tbody>
+        </table>
+      </div>}
+    </div>:<div style={{padding:14,color:'rgba(200,230,200,.2)',fontSize:11,textAlign:'center'}}>{mdv?'Chọn X (nhiều biến = đa biến)':'Chọn Y và X'}</div>}
+    {/* ═══ PREDICTION CALCULATOR ═══ */}
+    {mr&&(mr.type==='multiLogistic'||mr.type==='logistic')&&mr.result.predict&&<div style={{padding:10,background:'rgba(0,250,154,.04)',border:`1px solid ${C.green}30`,borderRadius:5,marginTop:4}}>
+      <div style={{fontFamily:'Orbitron',fontSize:8,color:C.green,letterSpacing:'2px',marginBottom:8}}>🔮 DỰ ĐOÁN MẪU MỚI</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',gap:6,marginBottom:8}}>
+        {mr.xVars.map(xv=><div key={xv.id}>
+          <label style={{fontSize:9,color:'rgba(200,230,200,.5)',display:'block',marginBottom:2}}>{xv.name}</label>
+          <input type="number" value={predValues[xv.id]||''} onChange={e=>setPredValues(p=>({...p,[xv.id]:e.target.value}))}
+            placeholder={`vd: ${descriptive(project.rows.map(r=>r[xv.id]))?.mean||0}`}
+            style={{fontSize:11,padding:'4px 8px'}}/>
+        </div>)}
+      </div>
+      {(()=>{
+        const allFilled=mr.xVars.every(xv=>predValues[xv.id]!==undefined&&predValues[xv.id]!=='')
+        if(!allFilled)return<div style={{fontSize:10,color:'rgba(200,230,200,.25)'}}>Nhập giá trị tất cả biến để dự đoán</div>
+        const vals=mr.xVars.map(xv=>Number(predValues[xv.id]))
+        if(vals.some(isNaN))return<div style={{fontSize:10,color:C.pink}}>Giá trị không hợp lệ</div>
+        const prob=mr.result.predict(vals)
+        const pct=+(prob*100).toFixed(1)
+        return<div style={{textAlign:'center',padding:10}}>
+          <div style={{fontSize:10,color:'rgba(200,230,200,.5)',marginBottom:4}}>Xác suất {depV?.name}:</div>
+          <div style={{fontFamily:'Orbitron',fontSize:28,fontWeight:700,color:pct>=50?C.pink:C.green,textShadow:`0 0 20px ${pct>=50?C.pink:C.green}40`}}>{pct}%</div>
+          <div style={{fontSize:10,color:pct>=50?C.pink:C.green,marginTop:4}}>{pct>=50?'⚠ Nguy cơ CAO':'✓ Nguy cơ THẤP'} (cutoff 50%)</div>
+          <div style={{fontSize:9,color:'rgba(200,230,200,.25)',marginTop:6}}>logit = {mr.result.realB?.toFixed(3)} + {mr.xVars.map((xv,i)=>`${mr.result.realW[i]?.toFixed(3)}×${xv.name}`).join(' + ')}</div>
+        </div>
+      })()}
+    </div>}</div>
 
   // ─── Advisor ────
   const renderAdvisor=()=>{const adv=suggestModels(sv,project.rows);const models=adv.models||adv;const gw=adv.globalWarns||[];return<div style={{overflow:'auto',flex:1,padding:4}}>

@@ -79,6 +79,78 @@ export const welchTTest=(g1,g2)=>{const a=clean(g1),b=clean(g2);if(a.length<2||b
 export const mannWhitneyU=(g1,g2)=>{const a=clean(g1),b=clean(g2);if(a.length<2||b.length<2)return null;const n1=a.length,n2=b.length;let u1=0;for(const x of a)for(const y of b)u1+=x>y?1:x===y?.5:0;const U=Math.min(u1,n1*n2-u1);const z=(U-n1*n2/2)/Math.sqrt(n1*n2*(n1+n2+1)/12);const p=2*(1-normalCDF(Math.abs(z)));const rbc=1-2*U/(n1*n2);return{U:+U.toFixed(1),z:+z.toFixed(3),p:+p.toFixed(4),n1,n2,rbc:+rbc.toFixed(3),significant:p<.05,interpretation:p<.001?'p < 0.001 (***)':p<.01?`p = ${p.toFixed(3)} (**)`:p<.05?`p = ${p.toFixed(3)} (*)`:`p = ${p.toFixed(3)} (ns)`}}
 export const linearRegression=(xArr,yArr)=>{const x=clean(xArr),y=clean(yArr),n=Math.min(x.length,y.length);if(n<3)return null;const xi=x.slice(0,n),yi=y.slice(0,n),mx=mean(xi),my=mean(yi);let sxy=0,sxx=0;for(let i=0;i<n;i++){sxy+=(xi[i]-mx)*(yi[i]-my);sxx+=(xi[i]-mx)**2}const b=sxx>0?sxy/sxx:NaN,a=my-b*mx;const yH=xi.map(v=>a+b*v),ssr=yi.reduce((s,v,i)=>s+(v-yH[i])**2,0),sst=yi.reduce((s,v)=>s+(v-my)**2,0);const r2=sst>0?1-ssr/sst:NaN,mse=ssr/(n-2),seb=Math.sqrt(mse/sxx),tb=b/seb,pb=tToPValue(tb,n-2);return{intercept:+a.toFixed(4),slope:+b.toFixed(4),r2:+r2.toFixed(4),r2adj:+(1-(1-r2)*(n-1)/(n-2)).toFixed(4),rmse:+Math.sqrt(mse).toFixed(4),p:+pb.toFixed(4),t:+tb.toFixed(3),n,significant:pb<.05,interpretation:pb<.001?'p < 0.001 (***)':pb<.01?`p = ${pb.toFixed(3)} (**)`:pb<.05?`p = ${pb.toFixed(3)} (*)`:`p = ${pb.toFixed(3)} (ns)`}}
 export const logisticRegression=(xArr,yArr,epochs=2000,lr=0.05)=>{const x=clean(xArr),y=clean(yArr.map(Number)),n=Math.min(x.length,y.length);if(n<10)return null;const xi=x.slice(0,n),yi=y.slice(0,n),mx=mean(xi),sx=std(xi);const xs=xi.map(v=>sx>0?(v-mx)/sx:0);let w=0,b2=0;for(let e=0;e<epochs;e++){let dw=0,db=0;for(let i=0;i<n;i++){const p=sig(w*xs[i]+b2);dw+=(p-yi[i])*xs[i];db+=(p-yi[i])}w-=lr*dw/n;b2-=lr*db/n}const rW=sx>0?w/sx:w,rB=b2-rW*mx;const probs=xi.map(v=>sig(rW*v+rB)),preds=probs.map(p=>p>=.5?1:0),correct=preds.filter((p,i)=>p===yi[i]).length;const pb=mean(yi),ll0=yi.reduce((s,v)=>s+Math.log(pb+1e-10)*v+Math.log(1-pb+1e-10)*(1-v),0),ll1=yi.reduce((s,v,i)=>s+Math.log(probs[i]+1e-10)*v+Math.log(1-probs[i]+1e-10)*(1-v),0);const tp=preds.filter((p,i)=>p===1&&yi[i]===1).length,tn=preds.filter((p,i)=>p===0&&yi[i]===0).length,fp=preds.filter((p,i)=>p===1&&yi[i]===0).length,fn=preds.filter((p,i)=>p===0&&yi[i]===1).length;return{intercept:+rB.toFixed(4),coefficient:+rW.toFixed(4),or:+Math.exp(rW).toFixed(3),accuracy:+(correct/n*100).toFixed(1),sensitivity:+(tp/(tp+fn+1e-10)*100).toFixed(1),specificity:+(tn/(tn+fp+1e-10)*100).toFixed(1),ppv:+(tp/(tp+fp+1e-10)*100).toFixed(1),mcFaddenR2:+(ll0!==0?1-ll1/ll0:NaN).toFixed(4),n,tp,tn,fp,fn}}
+
+// Multivariable logistic regression — gradient descent
+// xArrays: array of arrays (each predictor), yArr: outcome 0/1
+export const multiLogisticRegression=(xArrays,yArr,epochs=3000,lr=0.03)=>{
+  const k=xArrays.length; if(k===0)return null
+  // Build aligned data matrix — only rows with all values present
+  const yClean=yArr.map(Number)
+  const validRows=[]
+  for(let i=0;i<yClean.length;i++){
+    if(isNaN(yClean[i])||(yClean[i]!==0&&yClean[i]!==1))continue
+    const xRow=xArrays.map(xa=>{const v=Number(xa[i]);return isNaN(v)?null:v})
+    if(xRow.some(v=>v===null))continue
+    validRows.push({x:xRow,y:yClean[i]})
+  }
+  const n=validRows.length; if(n<10)return null
+  const X=validRows.map(r=>r.x),Y=validRows.map(r=>r.y)
+  // Standardize each predictor
+  const means=[],stds=[]
+  for(let j=0;j<k;j++){
+    const col=X.map(r=>r[j]),m=col.reduce((s,v)=>s+v,0)/n,sd=Math.sqrt(col.reduce((s,v)=>s+(v-m)**2,0)/(n-1))||1
+    means.push(m);stds.push(sd)
+  }
+  const Xs=X.map(row=>row.map((v,j)=>(v-means[j])/stds[j]))
+  // Gradient descent
+  const w=new Array(k).fill(0); let b=0
+  for(let e=0;e<epochs;e++){
+    const dw=new Array(k).fill(0); let db=0
+    for(let i=0;i<n;i++){
+      let z=b; for(let j=0;j<k;j++)z+=w[j]*Xs[i][j]
+      const p=sig(z),err=p-Y[i]
+      for(let j=0;j<k;j++)dw[j]+=err*Xs[i][j]
+      db+=err
+    }
+    for(let j=0;j<k;j++)w[j]-=lr*dw[j]/n
+    b-=lr*db/n
+  }
+  // Convert back to original scale
+  const realW=w.map((wj,j)=>wj/stds[j])
+  let realB=b; for(let j=0;j<k;j++)realB-=realW[j]*means[j]
+  // Predictions
+  const probs=X.map(row=>{let z=realB;for(let j=0;j<k;j++)z+=realW[j]*row[j];return sig(z)})
+  const preds=probs.map(p=>p>=.5?1:0)
+  const correct=preds.filter((p,i)=>p===Y[i]).length
+  const tp=preds.filter((p,i)=>p===1&&Y[i]===1).length
+  const tn=preds.filter((p,i)=>p===0&&Y[i]===0).length
+  const fp=preds.filter((p,i)=>p===1&&Y[i]===0).length
+  const fn2=preds.filter((p,i)=>p===0&&Y[i]===1).length
+  const pBar=Y.reduce((s,v)=>s+v,0)/n
+  const ll0=Y.reduce((s,v)=>s+Math.log(pBar+1e-10)*v+Math.log(1-pBar+1e-10)*(1-v),0)
+  const ll1=Y.reduce((s,v,i)=>s+Math.log(probs[i]+1e-10)*v+Math.log(1-probs[i]+1e-10)*(1-v),0)
+  // Per-variable results
+  const coefficients=realW.map((wj,j)=>({
+    coef:+wj.toFixed(4), or:+Math.exp(wj).toFixed(3),
+    orLow:+Math.exp(wj-1.96*Math.abs(wj/2)).toFixed(3), // approx CI
+    orHigh:+Math.exp(wj+1.96*Math.abs(wj/2)).toFixed(3),
+  }))
+  // Predict function for new data
+  const predict=(newValues)=>{
+    let z=realB; for(let j=0;j<k;j++)z+=realW[j]*(newValues[j]||0)
+    return +sig(z).toFixed(4)
+  }
+  return{
+    intercept:+realB.toFixed(4), coefficients, n, k,
+    accuracy:+(correct/n*100).toFixed(1),
+    sensitivity:+(tp/(tp+fn2+1e-10)*100).toFixed(1),
+    specificity:+(tn/(tn+fp+1e-10)*100).toFixed(1),
+    ppv:+(tp/(tp+fp+1e-10)*100).toFixed(1),
+    npv:+(tn/(tn+fn2+1e-10)*100).toFixed(1),
+    mcFaddenR2:+(ll0!==0?1-ll1/ll0:NaN).toFixed(4),
+    tp,tn,fp,fn:fn2,predict,realW,realB
+  }
+}
 export const oneWayAnova=(groups)=>{const cl=groups.map(g=>clean(g)).filter(g=>g.length>=2);if(cl.length<2)return null;const allN=cl.reduce((s,g)=>s+g.length,0),gm=cl.flat().reduce((s,v)=>s+v,0)/allN;let ssB=0,ssW=0;cl.forEach(g=>{const gM=g.reduce((s,v)=>s+v,0)/g.length;ssB+=g.length*(gM-gm)**2;g.forEach(v=>{ssW+=(v-gM)**2})});const dfB=cl.length-1,dfW=allN-cl.length,msB=ssB/dfB,msW=ssW/dfW,F=msW>0?msB/msW:NaN,p=1-fCDF(F,dfB,dfW),eta2=ssB/(ssB+ssW);return{F:+F.toFixed(4),dfBetween:dfB,dfWithin:dfW,p:+p.toFixed(4),eta2:+eta2.toFixed(4),n:allN,nGroups:cl.length,significant:p<.05,interpretation:p<.001?'p < 0.001 (***)':p<.01?`p = ${p.toFixed(3)} (**)`:p<.05?`p = ${p.toFixed(3)} (*)`:`p = ${p.toFixed(3)} (ns)`}}
 export const freqTable=arr=>{const counts={};arr.forEach(v=>{if(!isNA(v))counts[v]=(counts[v]||0)+1});const total=Object.values(counts).reduce((s,v)=>s+v,0);return Object.entries(counts).map(([k,n])=>({value:k,n,pct:+(n/total*100).toFixed(1)})).sort((a,b)=>b.n-a.n)}
 
